@@ -1,0 +1,45 @@
+# ============================================================================
+# Artefatos de compilacao
+# A entrega e UM executavel, mas ele e reconstruido com `make` a partir do
+# fonte -- versionar o binario e os .o so cria conflito em todo commit.
+# ============================================================================
+*.o
+*.obj
+*.a
+*.exe
+*.dll
+*.so
+simulador
+simulador.exe
+
+# Depuracao (gerados por -g / crashes)
+*.dSYM/
+*.pdb
+*.ilk
+core
+vgcore.*
+
+# ============================================================================
+# Saidas geradas pela propria simulacao
+# O gantt e regerado a cada execucao; a imagem que vai para o relatorio deve
+# ser copiada para docs/ ou anexada a mao, nao commitada da raiz.
+# ============================================================================
+/*.svg
+/*.png
+
+# ============================================================================
+# Pastas de trabalho que NAO entram no repositorio
+# ============================================================================
+docs/
+graphify-out/
+
+# ============================================================================
+# Lixo de editor e de sistema operacional
+# ============================================================================
+.vscode/
+.idea/
+*.swp
+*~
+Thumbs.db
+desktop.ini
+.DS_Store

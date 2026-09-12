@@ -1,0 +1,56 @@
+@startuml simulador_fluxograma
+title Fluxograma de Funcionamento do Simulador (Projeto A)
+
+start
+
+:Usuário informa o caminho do\narquivo de configuração (texto plano);
+:Simulador carrega e faz parsing do arquivo\n(algoritmo_escalonamento;quantum;qtde_cpus\n+ uma linha por tarefa);
+
+if (Arquivo bem formado e\ncarregável?) then (não)
+  :Exibe erro claro ao usuário\nindicando o motivo;
+  stop
+else (sim)
+endif
+
+:Aplica valores padrão aos parâmetros\nnão informados pelo usuário;
+:Cria o TCB (Task Control Block)\npara cada tarefa do arquivo;
+if (Existem tarefas\naperiódicas?) then (sim)
+  :Ignora a tarefa e reporta\na situação ao usuário\n(Projeto A só trata periódicas);
+endif
+:Inicializa N processadores\ne a fila de prontos global;
+
+:Usuário escolhe o modo de execução;
+
+if (Modo escolhido?) then (Passo-a-passo)
+  repeat
+    :Avança 1 tick do relógio global;
+    :Verifica ingresso de novas\nativações de tarefas periódicas;
+    :Escalonador (RM ou EDF) seleciona\na próxima tarefa para cada CPU livre;
+    if (Houve empate na escolha?) then (sim)
+      :Aplica critérios de desempate, em ordem:\n1) tarefa já em execução\n2) menor prazo\n3) menor instante de ingresso\n4) menor duração\n5) sorteio (marcado no gantt);
+    endif
+    :Atribui/preempta tarefas nas CPUs;
+    if (Alguma CPU ficou\nsem tarefa disponível?) then (sim)
+      :Desliga a CPU e registra\no período de ociosidade;
+    endif
+    :Verifica se algum prazo (deadline)\nfoi estourado e marca o erro;
+    :Atualiza o gráfico de gantt na tela\n(cor = executando, sem cor = pronta,\npreto+padrão = suspensa, ícones = chegada/término);
+    :Salva snapshot do estado atual do\nsistema no histórico (para navegação);
+    :Usuário pode avançar, retroceder\nou editar o estado de qualquer tarefa;
+    if (Usuário retrocedeu?) then (sim)
+      :Restaura snapshot anterior\ndo histórico (relógio global também volta);
+    endif
+  repeat while (Ainda há tarefas\na executar?) is (sim)
+  ->não;
+else (Completa)
+  while (Ainda há tarefas\na executar?) is (sim)
+    :Avança tick, escalona (RM/EDF),\natribui CPUs, trata prazos e ociosidade\n(sem exibir passos intermediários);
+  endwhile (não)
+  :Exibe apenas o resultado final\nda simulação;
+endif
+
+:Gera arquivo de imagem do gráfico\nde gantt final (PNG/SVG/JPG),\nrepresentando a simulação completa;
+
+stop
+
+@enduml
