@@ -4,7 +4,6 @@
 
 #define MAX_ATIVACOES 10
 
-
 #define MAX_EVENTOS_TXT 256
 
 typedef enum {

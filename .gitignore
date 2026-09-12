@@ -3,6 +3,7 @@
 # A entrega e UM executavel, mas ele e reconstruido com `make` a partir do
 # fonte -- versionar o binario e os .o so cria conflito em todo commit.
 # ============================================================================
+build/
 *.o
 *.obj
 *.a

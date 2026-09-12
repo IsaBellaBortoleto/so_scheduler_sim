@@ -1,0 +1,17 @@
+# Arquivo de configuracao de exemplo (requisito 3.3).
+# Linhas em branco e linhas iniciadas por '#' sao ignoradas.
+#
+# Primeira linha util: parametros do sistema
+#   algoritmo_escalonamento ; quantum ; qtde_cpus
+RM;2;2
+
+# Demais linhas: uma tarefa por linha
+#   id ; cor ; ingresso ; duracao ; periodo ; prazo ; lista_eventos
+1;E63946;0;2;6;6
+2;2A9D8F;0;3;9;9
+3;F4A261;0;2;12;10
+4;457B9D;4;1;8;8;
+
+# A linha abaixo e uma tarefa APERIODICA (periodo = 0). No Projeto A ela deve
+# ser ignorada com aviso ao usuario (requisito 4.4).
+5;9B5DE5;3;2;0;7
