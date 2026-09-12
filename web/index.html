@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="pt-br">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Simulador de Escalonamento</title>
+<link rel="stylesheet" href="/estilo.css">
+</head>
+<body>
+
+<header id="cabecalho">
+  <h1>Simulador de Escalonamento Multitarefa</h1>
+  <div id="info-execucao">
+    <span id="info-algoritmo">algoritmo: --</span>
+    <span id="info-quantum">quantum: --</span>
+    <span id="info-cpus">CPUs: --</span>
+    <span id="info-tick">tick: --</span>
+    <span id="info-estado-sim">--</span>
+  </div>
+</header>
+
+<section id="barra-controles">
+  <div class="grupo-controle">
+    <label for="entrada-arquivo">arquivo de configuração</label>
+    <input type="text" id="entrada-arquivo" value="config.txt" placeholder="ex.: config.txt">
+    <button id="btn-carregar">carregar</button>
+  </div>
+  <div class="grupo-controle">
+    <button id="btn-retroceder" disabled>&larr; retroceder</button>
+    <button id="btn-avancar" disabled>avançar &rarr;</button>
+    <button id="btn-executar-tudo" disabled>executar tudo</button>
+    <button id="btn-exportar-svg" disabled>exportar SVG</button>
+  </div>
+</section>
+
+<section id="area-diagnostico" hidden>
+  <h2>diagnóstico do arquivo de configuração</h2>
+  <ul id="lista-erros" class="lista-diagnostico erros"></ul>
+  <ul id="lista-avisos" class="lista-diagnostico avisos"></ul>
+</section>
+
+<main id="area-principal">
+
+  <section id="area-gantt">
+    <h2>gráfico de Gantt</h2>
+    <div id="gantt-scroll">
+      <svg id="svg-gantt" xmlns="http://www.w3.org/2000/svg"></svg>
+    </div>
+    <div id="legenda">
+      <span class="item-legenda"><span class="amostra amostra-executando"></span> executando (cor da tarefa, número = CPU)</span>
+      <span class="item-legenda"><span class="amostra amostra-pronta"></span> pronta (fila)</span>
+      <span class="item-legenda"><span class="amostra amostra-suspensa"></span> suspensa</span>
+      <span class="item-legenda"><span class="marcador">&#9650;</span> chegada</span>
+      <span class="item-legenda"><span class="marcador">&#9679;</span> término</span>
+      <span class="item-legenda"><span class="marcador marcador-erro">&#10007;</span> prazo perdido</span>
+      <span class="item-legenda"><span class="marcador">&#9733;</span> desempate por sorteio</span>
+    </div>
+  </section>
+
+  <aside id="painel-lateral">
+    <section id="painel-cpus">
+      <h2>CPUs</h2>
+      <table id="tabela-cpus">
+        <thead><tr><th>CPU</th><th>tarefa</th><th>ticks ociosa</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </section>
+
+    <section id="painel-tarefas">
+      <h2>tarefas</h2>
+      <table id="tabela-tarefas">
+        <thead>
+          <tr>
+            <th>id</th><th>estado</th><th>restante</th><th>ativações</th><th>prazo</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </section>
+
+    <section id="painel-inspetor" hidden>
+      <h2>editar tarefa <span id="inspetor-titulo-id"></span></h2>
+      <form id="form-editar">
+        <label>campo
+          <select id="editar-campo">
+            <option value="estado">estado</option>
+            <option value="exec_restante">exec_restante</option>
+            <option value="prazo">prazo</option>
+          </select>
+        </label>
+        <label>valor
+          <input type="text" id="editar-valor">
+        </label>
+        <button type="submit">aplicar</button>
+        <button type="button" id="btn-fechar-inspetor">fechar</button>
+      </form>
+      <p id="inspetor-motivo" class="mensagem-erro"></p>
+    </section>
+
+    <section id="painel-evento">
+      <h2>último evento</h2>
+      <p id="texto-ultimo-evento">--</p>
+    </section>
+  </aside>
+
+</main>
+
+<script src="/app.js"></script>
+</body>
+</html>

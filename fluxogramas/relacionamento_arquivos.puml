@@ -1,0 +1,131 @@
+@startuml relacionamento_arquivos
+title Relacionamento entre arquivos — so_scheduler_sim
+
+' ----------------------------------------------------------------------------
+' Gerado a partir dos #include reais do repositorio e das referencias entre os
+' arquivos de web/. Arquivos com fundo amarelo ainda NAO existem: so o .h foi
+' escrito. Atualize este diagrama quando eles forem criados.
+' ----------------------------------------------------------------------------
+
+skinparam shadowing false
+skinparam defaultFontName Arial
+skinparam packageStyle rectangle
+skinparam ArrowColor #616161
+skinparam file {
+  BackgroundColor #FFFFFF
+  BorderColor #616161
+}
+skinparam file<<a implementar>> {
+  BackgroundColor #FFF8E1
+  BorderColor #F9A825
+}
+skinparam artifact {
+  BackgroundColor #F1F8E9
+  BorderColor #558B2F
+}
+
+' ============================== pacotes ======================================
+
+package "raiz" {
+  file "main.c" as main
+}
+
+package "include/  (contratos: o que cada modulo oferece)" {
+  file "tcb.h"         as tcb_h
+  file "config.h"      as config_h
+  file "escalonador.h" as esc_h
+  file "kernel.h"      as kernel_h
+  file "gantt.h"       as gantt_h
+  file "estado_json.h" as json_h
+  file "servidor.h"    as serv_h
+}
+
+package "src/  (implementacoes: como cada modulo faz)" {
+  file "tcb.c"         as tcb_c
+  file "config.c"      as config_c
+  file "escalonador.c" as esc_c
+  file "kernel.c"      as kernel_c
+  file "gantt.c"       as gantt_c
+  file "estado_json.c" as json_c <<a implementar>>
+  file "servidor.c"    as serv_c <<a implementar>>
+}
+
+package "ferramentas/  (roda so no build)" {
+  file "gerar_recursos.c" as gerador_c
+}
+
+package "web/  (interface, embutida no executavel)" {
+  file "index.html" as html
+  file "app.js"     as js
+  file "estilo.css" as css
+}
+
+package "build/  (gerado pelo make, nao versionado)" {
+  artifact "gerar_recursos.exe" as gerador_exe
+  artifact "recursos_web.h"     as recursos_h
+}
+
+' ================= cadeia de #include entre os cabecalhos ====================
+' tcb.h e a base: nao inclui nenhum outro arquivo do projeto.
+
+config_h ..> tcb_h
+esc_h    ..> tcb_h
+kernel_h ..> tcb_h
+kernel_h ..> esc_h
+kernel_h ..> config_h
+gantt_h  ..> kernel_h
+json_h   ..> kernel_h
+serv_h   ..> kernel_h
+
+' ========================== main.c e seus #include ===========================
+
+main ..> kernel_h
+main ..> gantt_h
+main ..> json_h
+main ..> serv_h
+
+' ===================== cada .c implementa o seu .h ===========================
+
+tcb_c    ..|> tcb_h
+config_c ..|> config_h
+esc_c    ..|> esc_h
+kernel_c ..|> kernel_h
+gantt_c  ..|> gantt_h
+json_c   ..|> json_h
+serv_c   ..|> serv_h
+
+' escalonador.c inclui config.h so para usar str_igual_ci
+esc_c ..> config_h : str_igual_ci
+
+' o servidor transforma a Simulacao em JSON para responder a pagina
+serv_c ..> json_h
+
+' ================ build: a pagina vira bytes dentro do .exe ==================
+
+gerador_c   -[#2E7D32]-> gerador_exe : compila
+gerador_exe -[#2E7D32]-> html        : le
+gerador_exe -[#2E7D32]-> js          : le
+gerador_exe -[#2E7D32]-> css         : le
+gerador_exe -[#2E7D32]-> recursos_h  : gera
+' (rotulo "inclui", e nao "#include": no PlantUML o # e lido como cor)
+serv_c      -[#2E7D32]-> recursos_h  : inclui
+
+' ======================= interface web em execucao ===========================
+
+html -[#1565C0,dashed]-> css : <link>
+html -[#1565C0,dashed]-> js  : <script>
+js   -[#1565C0]-> serv_c     : HTTP /api/*
+
+' ================================= legenda ===================================
+
+legend right
+  |= Seta |= Significado |
+  | cinza tracejada | #include |
+  | cinza com triangulo | o .c implementa o .h |
+  | verde | etapa do build (make) |
+  | azul | interface web / HTTP |
+  |<#FFF8E1> fundo amarelo | arquivo ainda nao existe |
+  |<#F1F8E9> fundo verde | arquivo gerado pelo build |
+endlegend
+
+@enduml

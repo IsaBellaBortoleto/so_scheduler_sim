@@ -7,7 +7,7 @@
  * POR QUE A COPIA PROFUNDA VIVE AQUI, E NAO NO KERNEL:
  * O requisito 1.5.2 exige guardar o historico do sistema a cada passo para
  * poder avancar e retroceder a simulacao. Como a struct Estado contem dois
- * vetores alocados dinamicamente (tarefas e cpus), copiar a struct com `=`
+ * vetores alocados dinamicamente(tarefas e cpus), copiar a struct com `=`
  * copiaria apenas os PONTEIROS: dois "estados" diferentes passariam a
  * compartilhar as mesmas tarefas, e alterar um alteraria o outro. Retroceder
  * deixaria de funcionar.

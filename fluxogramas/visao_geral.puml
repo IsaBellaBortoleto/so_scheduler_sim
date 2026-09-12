@@ -1,0 +1,95 @@
+@startuml visao_geral
+title Como as partes do simulador conversam entre si
+
+' ----------------------------------------------------------------------------
+' Versão para quem NÃO programa. Cada caixa é um papel ("o juiz", "o
+' mensageiro"); o nome do arquivo aparece só em letra pequena. As setas
+' numeradas contam, em ordem, o que acontece quando alguém usa o simulador.
+' A versão técnica (com #include e .h) está em relacionamento_arquivos.puml.
+'
+' Os rótulos das setas NÃO usam aspas: o PlantUML separa o texto entre aspas
+' do resto do rótulo e o desenha longe da seta.
+' ----------------------------------------------------------------------------
+
+skinparam shadowing false
+skinparam defaultFontName Arial
+skinparam defaultFontSize 13
+skinparam roundCorner 16
+skinparam ArrowColor #546E7A
+skinparam ArrowFontSize 12
+skinparam ArrowFontColor #37474F
+skinparam packageStyle rectangle
+skinparam package {
+  BorderColor #B0BEC5
+  FontColor #455A64
+}
+skinparam rectangle {
+  BorderColor #78909C
+}
+
+actor "Pessoa usando\no simulador" as pessoa
+
+rectangle "<b>Ponto de partida</b>\nprepara tudo, liga o mensageiro\ne abre o navegador\n<size:11><color:#607D8B>main.c</color></size>" as inicio #ECEFF1
+
+package "O que a pessoa vê" {
+  rectangle "<b>Tela do simulador</b>\nbotões, tabelas e o gráfico de Gantt\n<size:11><color:#607D8B>index.html, app.js, estilo.css</color></size>" as tela #E3F2FD
+}
+
+package "A ponte entre a tela e a simulação" {
+  rectangle "<b>Mensageiro</b>\nleva os pedidos da tela até a\nsimulação e traz as respostas\n<size:11><color:#607D8B>servidor.c (em construção)</color></size>" as mensageiro #FFF3E0
+  rectangle "<b>Tradutor</b>\ntransforma o estado da simulação\nnum texto que a tela entende\n<size:11><color:#607D8B>estado_json.c (em construção)</color></size>" as tradutor #FFF3E0
+}
+
+package "O cérebro da simulação" {
+  rectangle "<b>Relógio e memória</b>\nfaz o tempo andar passo a passo e\nguarda uma foto de cada passo\npara poder voltar atrás\n<size:11><color:#607D8B>kernel.c</color></size>" as relogio #EDE7F6
+  rectangle "<b>Juiz</b>\ndecide qual tarefa usa\ncada processador agora\n(regras RM e EDF)\n<size:11><color:#607D8B>escalonador.c</color></size>" as juiz #EDE7F6
+  rectangle "<b>Fichas das tarefas</b>\nos dados de cada tarefa:\nquanto falta, prazo, estado\n<size:11><color:#607D8B>tcb.c</color></size>" as fichas #EDE7F6
+}
+
+package "Entrada e saída de arquivos" {
+  rectangle "<b>Leitor</b>\nentende o arquivo de configuração\ne aponta os erros dele\n<size:11><color:#607D8B>config.c</color></size>" as leitor #E8F5E9
+  rectangle "<b>Desenhista</b>\ngera a imagem final\ndo gráfico de Gantt\n<size:11><color:#607D8B>gantt.c</color></size>" as desenhista #E8F5E9
+}
+
+file "Arquivo de configuração\nescolhido pela pessoa\n<size:11><color:#607D8B>ex.: tarefas.txt</color></size>" as arq_config #FFFFFF
+file "Imagem do gráfico\n<size:11><color:#607D8B>gantt.svg</color></size>" as arq_imagem #FFFFFF
+
+' ============================ a história, em ordem ===========================
+' Setas com mais traços (-->, --->) ficam mais compridas e abrem espaço para
+' o rótulo não encostar nas caixas.
+
+pessoa     -down->   inicio     : 1. abre o programa
+inicio     -down->   tela       : 2. abre a tela\nno navegador
+pessoa     -right->  tela       : 3. escolhe o arquivo\ne clica nos botões
+tela       -down-->  mensageiro : 4. envia o pedido
+mensageiro -down-->  leitor     : 5. carregar o arquivo
+leitor     -down->   arq_config : lê
+mensageiro -down-->  relogio    : 6. avançar um passo
+relogio    -right--> juiz       : 7. quem usa cada\nprocessador?
+relogio    -down->   fichas     : 8. atualiza
+juiz       -down->   fichas     : consulta
+mensageiro -right--> tradutor   : 9. traduz o\nresultado
+tradutor   -up-->    tela       : 10. mostra o\nnovo passo
+mensageiro -down-->  desenhista : 11. exportar a imagem
+desenhista -down->   arq_imagem : grava
+
+' =================================== notas ===================================
+
+note right of tela
+  <b>Um arquivo só para entregar</b>
+  Na hora de compilar, uma ferramenta
+  auxiliar (<i>gerar_recursos.c</i>) coloca a
+  tela <b>dentro</b> do executável. Por isso o
+  simulador funciona sem nenhuma pasta
+  ao lado dele.
+end note
+
+note bottom of fichas
+  <b>E os arquivos .h?</b>
+  Cada arquivo .c tem um .h com o mesmo
+  nome (<i>kernel.c</i> e <i>kernel.h</i>). O .h funciona
+  como um <b>índice</b>: diz o que aquela parte
+  sabe fazer, sem mostrar como faz.
+end note
+
+@enduml
