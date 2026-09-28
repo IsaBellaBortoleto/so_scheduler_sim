@@ -63,7 +63,18 @@ static void snapshot(Simulacao *s)
     /* TODO: se n_hist >= cap_hist, realloc(historico, nova_cap *
      * sizeof(Estado)) dobrando a capacidade (comece com algo como 64).
      * Depois: historico[n_hist] = estado_clonar(&s->atual); n_hist++. */
-    (void)s;
+
+    if (s->n_hist >= s->cap_hist)
+    {
+        s->cap_hist = (s->cap_hist == 0) ? 64 : s->cap_hist*2;
+        s->historico = realloc(s->historico,s->cap_hist* sizeof(Estado));
+    }
+    s->historico[s->n_hist] = estado_clonar(&s->atual);
+    s->n_hist++;
+    
+    
+
+    //(void)s;
 }
 
 /* ATIVAÇÃO — uma tarefa periódica INATIVA vira PRONTA quando o tick atual
@@ -83,7 +94,30 @@ static void ativar(Simulacao *s)
      *   sorteada = 0
      * Dica: vale registrar isso em s->ultimo_evento (snprintf) pra
      * facilitar o debug/gantt. */
-    (void)s;
+
+    Estado *executando = &s->atual;
+    for (int i = 0; i < executando->ntarefas; i++)
+    {
+        TCB *tarefa = executando->tarefas{i};
+        if(tarefa->estado == EST_INATIVA && tarefa->periodo > 0)
+        {
+            if(executando->tick >= tarefa->ingresso && (executando->tick - tarefa->ingresso) % tarefa->periodo == 0)
+            {
+                tarefa->estado=EST_PRONTA;
+                tarefa->exec_restante = tarefa->duracao;
+                tarefa->quantum_restante=0;
+                tarefa->ativacao=executando->tick;
+                tarefa->deadline_abs = executando->tick + tarefa->prazo;
+                tarefa->perdeu_prazo = 0;
+                tarefa->cpu=-1;
+                tarefa->sorteada = 0;
+
+            }
+        }
+    }
+    
+
+    //(void)s;
 }
 
 /* ESCALONAMENTO — requisito 1.2.
@@ -127,7 +161,7 @@ static void executar(Simulacao *s)
     /* TODO: para cada tarefa EST_EXECUTANDO:
      *   exec_restante--
      *   se e->quantum > 0 e quantum_restante > 0: quantum_restante--
-     *
+     *  
      *   se exec_restante <= 0 (ativação concluída):
      *     solta a CPU, cpu=-1, quantum_restante=0, ativacoes++
      *     estado = EST_CONCLUIDA se ativacoes >= MAX_ATIVACOES (10, ver
@@ -140,7 +174,50 @@ static void executar(Simulacao *s)
      *   EST_EXECUTANDO)
      *
      *   senão: nada muda, ela continua executando. */
-    (void)s;
+    Estado *executando = &s->atual;
+    for(int i = 0; i < executando->ntarefas; i++)
+    {
+         TCB *tarefa = &executando->ntarefas[i];
+        if(tarefa->estado == EST_EXECUTANDO)
+        {
+            tarefa->exec_restante--;
+            if(executando->quantum > 0 && tarefa->quantum_restante > 0)
+            {
+                tarefa->quantum_restante--;
+
+            }
+            if(tarefa->exec_restante<=0)
+            {
+                // Ativação concluída
+                executando->cpus[tarefa->cpu].tarefa=-1;
+                tarefa->cpu=-1;
+                tarefa->quantum_restante=0;
+                tarefa->ativacoes++;
+                
+                if(tarefa->ativacoes>=MAX_ATIVACOES)
+                {
+                    tarefa->estado=EST_CONCLUIDA;
+                
+
+                }else
+                {
+                    tarefa->estado = EST_INATIVA;
+                }
+            }else if(executando->quantum >0 && tarefa->quantum_restante<=0)
+            {
+                executando->cpus[tarefa->cpu].tarefa=-1;
+                tarefa->cpu=-1;
+                tarefa->estado = EST_PRONTA;
+
+            }
+
+        }
+
+
+    }
+
+
+    //(void)s;
 }
 
 static void verificar_prazos(Simulacao *s)
@@ -149,7 +226,21 @@ static void verificar_prazos(Simulacao *s)
      * tick > deadline_abs e ainda não estava marcada (!perdeu_prazo):
      * marcar perdeu_prazo=1 (ela continua executando normalmente depois
      * disso -- só fica marcada pro gantt mostrar o erro, requisito 3.3). */
-    (void)s;
+    Estado *executando = &s->atual;
+    for (int i = 0; i < executando->ntarefas; i++)
+    {
+        TCB *tarefa = &executando->tarefas[i];
+        if(tarefa->estado!= EST_INATIVA && tarefa->!= EST_CONCLUIDA)
+        {
+            if(executando->tick > tarefa->deadline_abs && !tarefa->perdeu_prazo)
+            {
+                tarefa->perdeu_prazo=1; //Marca para visualização do gráfico
+            }
+        }
+    }
+    
+    
+     //(void)s;
 }
 
 /* ------------------------------ ciclo de vida ----------------------------- */
@@ -187,8 +278,26 @@ int sim_avancar(Simulacao *s)
      * 4) checar todas_concluidas e ajustar terminada.
      * 5) snapshot(s).
      * 6) devolver 1. */
-    (void)s;
-    return 0;
+    if(s->terminada == 0)
+    {
+        return 0;
+    } 
+    if (s->atual.tick >= MAX_TICKS)
+    {
+        s->terminada=1;
+        return 0;
+    }
+    executar(s);
+    s->atual.tick++;
+    verificar_prazos(s);
+    ativar(s);
+    escalonar(s);
+    s->terminada = todas_concluidas(&s->atual);
+    snapshot(s);
+    
+
+    /*(void)s;*/
+    return 1;
 }
 
 int sim_retroceder(Simulacao *s)
