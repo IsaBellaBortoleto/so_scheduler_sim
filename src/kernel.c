@@ -98,7 +98,7 @@ static void ativar(Simulacao *s)
     Estado *executando = &s->atual;
     for (int i = 0; i < executando->ntarefas; i++)
     {
-        TCB *tarefa = executando->tarefas{i};
+        TCB *tarefa = &executando->tarefas[i];
         if(tarefa->estado == EST_INATIVA && tarefa->periodo > 0)
         {
             if(executando->tick >= tarefa->ingresso && (executando->tick - tarefa->ingresso) % tarefa->periodo == 0)
@@ -177,7 +177,7 @@ static void executar(Simulacao *s)
     Estado *executando = &s->atual;
     for(int i = 0; i < executando->ntarefas; i++)
     {
-         TCB *tarefa = &executando->ntarefas[i];
+         TCB *tarefa = &executando->tarefas[i];
         if(tarefa->estado == EST_EXECUTANDO)
         {
             tarefa->exec_restante--;
@@ -230,7 +230,7 @@ static void verificar_prazos(Simulacao *s)
     for (int i = 0; i < executando->ntarefas; i++)
     {
         TCB *tarefa = &executando->tarefas[i];
-        if(tarefa->estado!= EST_INATIVA && tarefa->!= EST_CONCLUIDA)
+        if(tarefa->estado!= EST_INATIVA && tarefa->estado!= EST_CONCLUIDA)
         {
             if(executando->tick > tarefa->deadline_abs && !tarefa->perdeu_prazo)
             {

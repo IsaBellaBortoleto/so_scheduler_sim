@@ -35,8 +35,35 @@ Estado estado_clonar(const Estado *e)
      * 4- mesma ideia pra copia.cpus, com e->ncpus.
      * 5) se algum malloc falhar, deixar o campo correspondente em 0/NULL
      *    de forma consistente (nao deixar ntarefas>0 com tarefas==NULL). */
-    Estado copia = {0};
-    (void)e;
+    
+    
+     Estado copia = *e;
+     copia.tarefas = NULL;
+     copia.cpus = NULL;
+     if(e->ntarefas > 0)
+     {
+      //Para caso a váriável *e->tarefas altere o seu tamanho com inserção de dados
+        copia.tarefas = malloc(e->ntarefas*sizeof(*e->tarefas));
+      if (copia.tarefas != NULL)
+      {
+        memcpy(copia.tarefas, e->tarefas,e->ntarefas*sizeof(*e->tarefas));
+      }else
+      {
+        copia.ntarefas = 0;
+      }
+     }
+     if(e->ncpus > 0)
+     {
+        copia.cpus = malloc(e->ncpus*sizeof(*e->cpus));
+        if (copia.cpus != NULL)
+        {
+            memcpy(copia.cpus,e->cpus,e->ncpus*sizeof(*e->cpus));
+        }else
+        {
+            copia.ncpus = 0;
+        }
+     }
+    //(void)e;
     return copia;
 }
 
@@ -46,7 +73,23 @@ void estado_liberar(Estado *e)
      * e os contadores (ntarefas=0, ncpus=0) pra tornar seguro chamar
      * estado_liberar duas vezes sobre o mesmo Estado (nao deve dar
      * double-free). */
-    (void)e;
+    if (e->tarefas != NULL)
+    {
+        
+        free(e->tarefas);
+        //Prevenção para que ocorra um double free
+        e->tarefas = NULL;
+    }
+    if (e->cpus != NULL)
+    {
+        
+        free(e->cpus);
+        //Prevenção para que ocorra um double free
+        e->cpus = NULL;
+    }
+    e->ntarefas = 0;
+    e->ncpus = 0;
+    //(void)e;
 }
 
 /* Nome legivel do estado, usado no inspetor de tarefas (requisito 1.5.1) e
@@ -54,15 +97,23 @@ void estado_liberar(Estado *e)
 const char *estado_nome(EstadoTarefa e)
 {
     switch (e) {
-        case EST_INATIVA:    return "INATIVA";
-        case EST_PRONTA:     return "PRONTA";
-        case EST_EXECUTANDO: return "EXECUTANDO";
-        case EST_SUSPENSA:   return "SUSPENSA";
-        case EST_CONCLUIDA:  return "CONCLUIDA";
+        case EST_INATIVA:    
+            return "INATIVA";
+        case EST_PRONTA:     
+            return "PRONTA";
+        case EST_EXECUTANDO: 
+            return "EXECUTANDO";
+        case EST_SUSPENSA:   
+            return "SUSPENSA";
+        case EST_CONCLUIDA:  
+            return "CONCLUIDA";
+
     }
     /* TODO: o switch acima já cobre todos os valores do enum, mas o
      * compilador não sabe disso com certeza (um int fora do range
      * poderia, em teoria, ser convertido pra EstadoTarefa) -- acrescente
      * um `return` de segurança aqui embaixo (ex. "DESCONHECIDO") pra
      * -Wall não reclamar de "control reaches end of non-void function". */
+    //Garantindo caso a variável "e" tenha um valor inválido, retorne um valor default, assim assegura que não venha um lixo da memória.
+    return "DESCONHECIDO";
 }
