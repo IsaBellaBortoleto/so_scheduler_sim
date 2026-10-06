@@ -487,11 +487,90 @@ static void teste_prazos(void)
     printf("autoteste: prazos e simulacao completa ... ok\n");
 }
 
+/* JSON dos erros e avisos do carregamento (estado_json.h). */
+static void teste_diagnostico_json(void)
+{
+    static Diagnostico d;
+    char buf[512], pequeno[20];
+
+    /* Sem mensagens: as duas listas saem vazias, sem virgula sobrando. */
+    memset(&d, 0, sizeof d);
+    assert(diagnostico_json(&d, buf, sizeof buf) == (int)strlen(buf));
+    assert(strcmp(buf, "{\"erro\":true,\"erros\":[],\"avisos\":[]}") == 0);
+
+    /* Virgula so ENTRE os itens, e aspas da mensagem escapadas: sem o
+     * escape, o "x" fecharia a string antes da hora e quebraria a pagina. */
+    diag_erro(&d, "quantum invalido \"x\"");
+    diag_erro(&d, "linha 2");
+    diag_aviso(&d, "aviso");
+    assert(diagnostico_json(&d, buf, sizeof buf) == (int)strlen(buf));
+    assert(strcmp(buf, "{\"erro\":true,\"erros\":[\"quantum invalido \\\"x\\\"\",\"linha 2\"],"
+                       "\"avisos\":[\"aviso\"]}") == 0);
+
+    /* Buffer pequeno: -1 e NADA pela metade (um JSON cortado quebra a
+     * pagina sem mensagem nenhuma). */
+    assert(diagnostico_json(&d, pequeno, sizeof pequeno) == -1);
+    assert(pequeno[0] == '\0');
+
+    /* Barra invertida (caminho do Windows) e quebra de linha tambem sao
+     * escapadas: cada barra vira duas, e a quebra vira barra + n. */
+    memset(&d, 0, sizeof d);
+    diag_erro(&d, "C:\\pasta\nfim");
+    assert(diagnostico_json(&d, buf, sizeof buf) > 0);
+    assert(strstr(buf, "[\"C:\\\\pasta\\nfim\"]") != NULL);
+
+    printf("autoteste: diagnostico em JSON ... ok\n");
+}
+
+/* JSON do estado do tick atual (estado_json.h). */
+static void teste_estado_json(void)
+{
+    static char buf[4096];
+    char pequeno[64];
+    Simulacao s;
+
+    /* Antes de carregar um arquivo: Estado valido, com as listas vazias. */
+    memset(&s, 0, sizeof s);
+    assert(estado_json_atual(&s, buf, sizeof buf) == (int)strlen(buf));
+    assert(strcmp(buf, "{\"carregado\":false,\"tick\":0,\"terminada\":false,"
+                       "\"algoritmo\":\"\",\"quantum\":0,\"ncpus\":0,"
+                       "\"ultimo_evento\":\"\",\"cpus\":[],\"tarefas\":[]}") == 0);
+
+    /* Depois de carregar: cabecalho, cor no formato do CSS, e o texto de
+     * 'eventos' (que vem do arquivo) com as aspas escapadas. */
+    iniciar_de_texto(&s, "edf;3;2\n7;FF000A;0;2;5;4;ev \"x\"\n8;;1;1;6");
+    assert(estado_json_atual(&s, buf, sizeof buf) == (int)strlen(buf));
+    assert(strstr(buf, "{\"carregado\":true,\"tick\":0,\"terminada\":false,"
+                       "\"algoritmo\":\"EDF\",\"quantum\":3,\"ncpus\":2,") == buf);
+    assert(strstr(buf, "{\"id\":7,\"cor\":\"#FF000A\",\"ingresso\":0,\"duracao\":2,"
+                       "\"periodo\":5,\"prazo\":4,"));
+    assert(strstr(buf, "\"eventos\":\"ev \\\"x\\\"\"},{\"id\":8,"));
+    assert(strstr(buf, "\"cpus\":[{\"id\":0,") && strstr(buf, "},{\"id\":1,"));
+    assert(buf[strlen(buf) - 2] == ']' && buf[strlen(buf) - 1] == '}');
+
+    /* A CPU mostra o ID da tarefa, e nao a posicao dela no vetor: a tarefa
+     * de id 7 esta na posicao 0. A atribuicao e feita a mao aqui, porque
+     * distribuir CPUs e trabalho da escalonar(), que e de outro card. */
+    s.atual.cpus[1].tarefa = 0;
+    assert(estado_json_atual(&s, buf, sizeof buf) > 0);
+    assert(strstr(buf, "{\"id\":1,\"tarefa\":7,") != NULL);
+    s.atual.cpus[1].tarefa = -1;
+
+    /* Buffer pequeno: -1 e NADA pela metade (contrato de estado_json.h). */
+    assert(estado_json_atual(&s, pequeno, sizeof pequeno) == -1);
+    assert(pequeno[0] == '\0');
+    sim_liberar(&s);
+
+    printf("autoteste: estado em JSON ... ok\n");
+}
+
 static void autoteste(void)
 {
     teste_escalonador();
     teste_config();
     teste_sim_iniciar();
+    teste_diagnostico_json();
+    teste_estado_json();
 
     /* DESLIGADOS ate o nucleo da simulacao ficar pronto (cards da Ana):
      * dependem de escalonar(), todas_concluidas(), sim_avancar() e
@@ -547,27 +626,28 @@ int main(int argc, char **argv)
      * exatamente como esse sinal. */
     memset(&sim, 0, sizeof sim);
 
-    /* TODO: imprimir no console o endereco http://localhost:<porta>/.
-     * Se o navegador nao abrir sozinho(antivirus, navegador padrao nao
-     * configurado), essa linha e a unica forma de o usuario descobrir onde
-     * entrar -- a janela do console e a unica interface garantida. */
+    /* Se o navegador nao abrir sozinho (antivirus, navegador padrao nao
+     * configurado), esta linha e a unica forma de o usuario descobrir onde
+     * entrar -- a janela do console e a unica interface garantida. O fflush
+     * garante que ela apareca antes de o servidor prender o programa. */
+    printf("Simulador em http://127.0.0.1:%d/\n", porta);
+    printf("Deixe esta janela aberta; feche-a para encerrar.\n");
+    fflush(stdout);
 
-    /* TODO: servidor_abrir_navegador(porta);
+    /* O navegador NAO e aberto aqui: quem abre e o proprio servidor_iniciar,
+     * depois que a porta ja esta escutando. Aberto antes, o navegador poderia
+     * pedir a pagina cedo demais e mostrar "conexao recusada".
      *
-     * ATENCAO a ordem: servidor_iniciar BLOQUEIA (roda o laco de accept ate
-     * o programa fechar), entao o navegador precisa ser aberto ANTES dele.
-     * Isso cria uma corrida: se o navegador pedir a pagina antes de o
-     * servidor terminar o bind/listen, aparece "conexao recusada". Na
-     * pratica abrir o navegador demora mais que o bind, mas nao ha garantia.
-     * A correcao definitiva e dividir servidor.h em duas funcoes -- uma que
-     * abre a porta e retorna, outra que roda o laco -- e abrir o navegador
-     * entre as duas. */
-
-    /* TODO: if (!servidor_iniciar(&sim, porta)) { ... }
-     * Retorno 0 = nao conseguiu abrir a porta. O caso comum e o proprio
-     * simulador ja estar aberto em outra janela, entao a mensagem deve dizer
-     * isso (req. 5: motivo claro), liberar a simulacao e retornar 1. */
-    (void)porta;
+     * servidor_iniciar so retorna se NAO conseguiu abrir a porta (devolve 0);
+     * quando consegue, fica atendendo pedidos ate o programa ser fechado. */
+    if (!servidor_iniciar(&sim, porta)) {
+        fprintf(stderr,
+                "Nao foi possivel abrir a porta %d: ela ja esta em uso, "
+                "provavelmente por outra janela do simulador.\n"
+                "Feche a outra janela e tente de novo.\n", porta);
+        sim_liberar(&sim);
+        return 1;
+    }
 
     sim_liberar(&sim);
     return 0;

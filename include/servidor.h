@@ -26,12 +26,15 @@
  *                                  Content-Disposition: attachment para o
  *                                  navegador baixar (req. 2.4)
  *
- * 'sim' precisa continuar valido durante toda a vida do servidor. Bloqueia a
- * thread chamadora rodando o laco de accept ate o processo ser encerrado.
- * Retorna 0 se nao conseguiu abrir a porta (ex. porta ja em uso), 1 em
- * encerramento normal. */
+ * 'sim' precisa continuar valido durante toda a vida do servidor.
+ *
+ * Abre a porta, abre o navegador e fica atendendo pedidos ate o programa ser
+ * fechado. So retorna se NAO conseguiu abrir a porta (ex. ja em uso), e
+ * nesse caso devolve 0. */
 int servidor_iniciar(Simulacao *sim, int porta);
 
+/* Abre o navegador padrao no endereco do simulador. E chamada pelo proprio
+ * servidor_iniciar, depois que a porta ja esta escutando. */
 void servidor_abrir_navegador(int porta);
 
 #endif
