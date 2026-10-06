@@ -72,6 +72,138 @@ static void teste_escalonador(void)
     assert(escalonador_buscar("RMS") == NULL);   /* nome parecido nao serve */
     assert(escalonador_buscar(NULL) == NULL);
 
+    /* Rate Monotonic: periodo MENOR tem que dar prioridade MAIOR (a
+     * convencao do projeto e "valor maior ganha"), e a prioridade e FIXA:
+     * nao pode depender do tick. */
+    {
+        const Escalonador *rm = escalonador_buscar("RM");
+        TCB rapida = {0}, lenta = {0};
+        rapida.periodo = 6;
+        lenta.periodo  = 9;
+        assert(rm->prioridade(&rapida, 0) > rm->prioridade(&lenta, 0));
+        assert(rm->prioridade(&rapida, 0) == rm->prioridade(&rapida, 999));
+    }
+
+    /* Earliest Deadline First: deadline absoluto MAIS CEDO tem que dar
+     * prioridade MAIOR. A prioridade e DINAMICA, mas quem a faz mudar e o
+     * campo deadline_abs (reescrito pela ativar() do kernel a cada periodo),
+     * e nao o tick: com o mesmo deadline, o valor e igual em qualquer tick. */
+    {
+        const Escalonador *edf = escalonador_buscar("EDF");
+        TCB cedo = {0}, tarde = {0};
+        long antes;
+        cedo.deadline_abs  = 15;
+        tarde.deadline_abs = 20;
+        assert(edf->prioridade(&cedo, 0) > edf->prioridade(&tarde, 0));
+        assert(edf->prioridade(&cedo, 0) == edf->prioridade(&cedo, 999));
+
+        antes = edf->prioridade(&cedo, 0);
+        cedo.deadline_abs = 30;                    /* nova ativacao: prazo novo */
+        assert(edf->prioridade(&cedo, 0) < antes); /* ficou menos urgente      */
+        assert(edf->prioridade(&tarde, 0) > edf->prioridade(&cedo, 0));  /* a ordem virou */
+    }
+
+    /* Ordenacao e criterios de desempate (requisito 4.3). 'ind' guarda
+     * POSICOES no vetor de tarefas; depois de ordenar, ind[0] e a posicao da
+     * tarefa mais prioritaria. */
+    {
+        const Escalonador *rm = escalonador_buscar("RM");
+        TCB t[3];
+        Estado e;
+        int ind[3], primeiro;
+
+        memset(t, 0, sizeof t);
+        memset(&e, 0, sizeof e);
+        e.tarefas = t; e.ntarefas = 3; e.ncpus = 1;
+        t[0].id = 1; t[1].id = 2; t[2].id = 3;
+
+        /* Sem empate: periodos 12, 6 e 9 -> posicoes na ordem 1, 2, 0. */
+        t[0].periodo = 12; t[1].periodo = 6; t[2].periodo = 9;
+        ind[0] = 0; ind[1] = 1; ind[2] = 2;
+        escalonador_ordenar(rm, &e, ind, 3);
+        assert(ind[0] == 1 && ind[1] == 2 && ind[2] == 0);
+
+        /* Daqui em diante todas tem o MESMO periodo: o RM empata, e so os
+         * criterios de desempate decidem. Cada bloco muda UM campo. */
+        t[0].periodo = t[1].periodo = t[2].periodo = 10;
+        t[0].prazo   = t[1].prazo   = t[2].prazo   = 10;
+        t[0].duracao = t[1].duracao = t[2].duracao = 2;
+
+        t[2].estado = EST_EXECUTANDO;            /* (1) quem ja executava */
+        ind[0] = 0; ind[1] = 1; ind[2] = 2;
+        escalonador_ordenar(rm, &e, ind, 3);
+        assert(ind[0] == 2);
+        t[2].estado = EST_INATIVA;
+
+        t[1].prazo = 5;                          /* (2) menor prazo */
+        ind[0] = 0; ind[1] = 1; ind[2] = 2;
+        escalonador_ordenar(rm, &e, ind, 3);
+        assert(ind[0] == 1);
+        t[1].prazo = 10;
+
+        t[0].ingresso = 4; t[1].ingresso = 4;    /* (3) quem chegou antes */
+        ind[0] = 0; ind[1] = 1; ind[2] = 2;
+        escalonador_ordenar(rm, &e, ind, 3);
+        assert(ind[0] == 2);
+        t[0].ingresso = 0; t[1].ingresso = 0;
+
+        t[0].duracao = 1;                        /* (4) menor duracao */
+        ind[0] = 0; ind[1] = 1; ind[2] = 2;
+        escalonador_ordenar(rm, &e, ind, 3);
+        assert(ind[0] == 0);
+        t[0].duracao = 2;
+
+        /* (5) empate em tudo: o sorteio decide. O vencedor tem que ser o
+         * mesmo se as duas tarefas entrarem na ordem contraria, e o mesmo
+         * se a ordenacao for repetida (a simulacao retrocede e avanca). */
+        ind[0] = 0; ind[1] = 1;
+        escalonador_ordenar(rm, &e, ind, 2);
+        primeiro = ind[0];
+        ind[0] = 1; ind[1] = 0;
+        escalonador_ordenar(rm, &e, ind, 2);
+        assert(ind[0] == primeiro);
+        escalonador_ordenar(rm, &e, ind, 2);
+        assert(ind[0] == primeiro);
+
+        /* Marcador do sorteio (4.3-5): com 1 CPU so a vencedora e marcada;
+         * com 2 CPUs as duas executam, ninguem ganhou nada na sorte, e a
+         * marca antiga tem que ser apagada. */
+        assert(t[ind[0]].sorteada == 1 && t[ind[1]].sorteada == 0);
+        e.ncpus = 2;
+        escalonador_ordenar(rm, &e, ind, 2);
+        assert(t[0].sorteada == 0 && t[1].sorteada == 0);
+        e.ncpus = 1;
+
+        /* Tres empatadas, 1 CPU: so a que ficou com a vaga e marcada. A
+         * segunda tambem empata com a terceira, mas as duas estao esperando. */
+        ind[0] = 0; ind[1] = 1; ind[2] = 2;
+        escalonador_ordenar(rm, &e, ind, 3);
+        assert(t[ind[0]].sorteada == 1);
+        assert(t[ind[1]].sorteada == 0 && t[ind[2]].sorteada == 0);
+
+        /* Tres empatadas, 2 CPUs: as duas com vaga ganharam da terceira na
+         * sorte, entao as duas sao marcadas. */
+        e.ncpus = 2;
+        ind[0] = 0; ind[1] = 1; ind[2] = 2;
+        escalonador_ordenar(rm, &e, ind, 3);
+        assert(t[ind[0]].sorteada == 1 && t[ind[1]].sorteada == 1);
+        assert(t[ind[2]].sorteada == 0);
+        e.ncpus = 1;
+
+        /* Quem ganhou a vaga por um criterio (aqui, menor duracao) NAO e
+         * marcada: nao houve sorteio na disputa pela CPU. */
+        t[0].duracao = 1;
+        ind[0] = 0; ind[1] = 1; ind[2] = 2;
+        escalonador_ordenar(rm, &e, ind, 3);
+        assert(ind[0] == 0);
+        assert(t[0].sorteada == 0 && t[1].sorteada == 0 && t[2].sorteada == 0);
+        t[0].duracao = 2;
+
+        /* Vetor vazio ou com uma tarefa: nao pode quebrar. */
+        escalonador_ordenar(rm, &e, ind, 0);
+        escalonador_ordenar(rm, &e, ind, 1);
+    }
+
     /* Um algoritmo novo: registra, e a busca passa a encontra-lo. A chamada
      * fica FORA do assert de proposito -- se o programa for compilado com
      * -DNDEBUG os asserts somem, e o registro sumiria junto. */
