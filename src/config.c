@@ -20,25 +20,48 @@
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
+#include <errno.h>
+#include <limits.h>
 #include <stdarg.h>
 
 /* ------------------------------ diagnósticos ----------------------------- */
 
+/* Acrescenta uma mensagem de erro à lista, formatada como no printf:
+ *     diag_erro(d, "linha %d: quantum invalido \"%s\"", n, txt);
+ * A lista tem tamanho fixo: depois de MAX_DIAG erros os seguintes são
+ * ignorados (o arquivo já está reprovado de qualquer forma, n_erros > 0). */
 void diag_erro(Diagnostico *d, const char *fmt, ...)
 {
-    /* TODO: se d->n_erros >= MAX_DIAG, ignore silenciosamente (estourou o
-     * limite). Senão, monte a mensagem formatada com va_start/vsnprintf
-     * (vsnprintf(d->erros[d->n_erros], MAX_DIAG_TXT, fmt, args)) e
-     * incremente d->n_erros. Não esquecer va_end. */
-    (void)d;
-    (void)fmt;
+    va_list args;
+
+    if (d->n_erros >= MAX_DIAG)
+        return;
+
+    /* va_list é o jeito de repassar os "..." para outra função. O vsnprintf
+     * é o snprintf que recebe va_list; o tamanho impede estourar a linha da
+     * matriz: mensagem longa demais é cortada, sempre com '\0' no fim. */
+    va_start(args, fmt);
+    vsnprintf(d->erros[d->n_erros], sizeof d->erros[d->n_erros], fmt, args);
+    va_end(args);
+
+    d->n_erros++;
 }
 
+/* Igual a diag_erro, mas na lista de AVISOS. Aviso não reprova o arquivo: é
+ * para o que o usuário precisa saber e a simulação consegue contornar (ex.
+ * tarefa aperiódica ignorada, requisito 4.4). */
 void diag_aviso(Diagnostico *d, const char *fmt, ...)
 {
-    /* TODO: igual a diag_erro, mas em d->avisos / d->n_avisos. */
-    (void)d;
-    (void)fmt;
+    va_list args;
+
+    if (d->n_avisos >= MAX_DIAG)
+        return;
+
+    va_start(args, fmt);
+    vsnprintf(d->avisos[d->n_avisos], sizeof d->avisos[d->n_avisos], fmt, args);
+    va_end(args);
+
+    d->n_avisos++;
 }
 
 /* ------------------------------ utilitários ------------------------------ */
@@ -67,32 +90,52 @@ int str_igual_ci(const char *a, const char *b)
     return *a == *b;
 }
 
-/* Remove espaços/tabs/CR do início e do fim, IN PLACE.
- * Requisito 3.3.6: "espaços e linhas em branco não representam erros". */
+/* Remove espaços, tabs e quebras de linha ('\r', '\n') do início e do fim,
+ * IN PLACE. Requisito 3.3.6: "espaços e linhas em branco não representam
+ * erros". 's' não pode ser NULL.
+ *
+ * USE O RETORNO, não 's': o fim é cortado escrevendo '\0' na própria string,
+ * mas o início é só "pulado" -- a função devolve um ponteiro para o primeiro
+ * caractere útil, dentro do mesmo buffer (nada é copiado nem alocado, então
+ * não há free). String só de espaços devolve "".
+ *
+ * BUG CLÁSSICO: aparar a linha inteira não apara os campos. Em " 1 ; 5 " o
+ * trim da linha tira só as pontas; depois do split os campos ainda são "1 "
+ * e " 5". Por isso o trim é chamado de novo em CADA campo. */
 static char *trim(char *s)
 {
-    /* TODO:
-     * 1- apara o FIM primeiro: ande de trás pra frente sobrescrevendo
-     *    espaços com '\0' enquanto isspace((unsigned char)s[len-1]).
-     * 2- depois ache o INÍCIO: avance um ponteiro enquanto
-     *    isspace((unsigned char)*inicio), e retorne esse ponteiro (não
-     *    dá pra mover o conteúdo, só devolver onde o texto "de verdade"
-     *    começa).
-     *
-     * ATENÇÃO (bug que eu mesmo caí ao testar): isso trima a LINHA
-     * inteira, mas depois do split_campos cada CAMPO também pode ter
-     * espaço sobrando ao redor (ex. "RM ; 3 ; 1" -> campo " 3 "). Chame
-     * trim() de novo em cada campo depois de separar por ';', senão
-     * "algoritmo ; 3 ; 1" quebra o campo_int por causa do espaço. */
-    (void)s;
-    return s;
+    /* Fim primeiro: anda de trás para frente trocando cada espaço por '\0'.
+     * O tam > 0 vem antes para nunca ler s[-1] numa string vazia. */
+    int tam = strlen(s);
+    while (tam > 0 && isspace((unsigned char)s[tam - 1])) {
+        s[tam - 1] = '\0';
+        tam--;
+    }
+
+    /* Início: avança o ponteiro até o primeiro caractere que não é espaço. */
+    char *inicio = s;
+    while (*inicio && isspace((unsigned char)*inicio)) {
+        inicio++;
+    }
+
+    return inicio;
 }
 
+/* Converte a string para maiúsculas, IN PLACE (requisito 3.3.2: "rm", "Rm" e
+ * "RM" são o mesmo algoritmo). NULL é ignorado.
+ * Só letras ASCII mudam; bytes de letras acentuadas em UTF-8 ficam como
+ * estão. O cast para unsigned char é obrigatório pelo mesmo motivo do
+ * str_igual_ci: toupper com char negativo é comportamento indefinido. */
 static void str_maiuscula(char *s)
 {
-    /* TODO: percorrer a string e aplicar toupper((unsigned char)*s) em
-     * cada posição, in place. */
-    (void)s;
+    if (s == NULL)
+        return;
+    while (*s)
+    {
+        *s = toupper((unsigned char)*s);
+        s++;
+    }
+
 }
 
 /* Quebra a linha em campos separados por ';'.
@@ -109,21 +152,31 @@ static void str_maiuscula(char *s)
  */
 static int split_campos(char *linha, char *campos[], int max)
 {
-    /* TODO:
-     * 1- usar strchr(ini, ';') repetidamente: cada vez que achar um ';',
-     *    trocar por '\0', guardar 'ini' como um campo, e avançar 'ini'
-     *    pra depois do ';'.
-     * 2) quando strchr não achar mais ';', o resto da linha é o último
-     *    campo (guardar e parar).
-     * 3) requisito 3.3.3: se a linha terminava em ';', o passo 1 gera um
-     *    último campo vazio "" à toa -- descartar esse campo vazio final
-     *    (mas só o final; um campo vazio no MEIO, tipo "1;;5", é legítimo
-     *    e deve ser preservado, conforme o comentário acima explica).
-     * 4) respeitar o limite 'max' pra não estourar o array campos[]. */
-    (void)linha;
-    (void)campos;
-    (void)max;
-    return 0;
+    int n = 0;
+
+    /* 'linha' anda pelo texto: aponta sempre para o começo do próximo campo.
+     * O n < max impede estourar campos[]. */
+    while (n < max)
+    {
+        /* O ÚLTIMO campo permitido não é cortado: fica com o resto da linha
+         * inteiro, com os ';' que tiver. É o caso da lista de eventos, que
+         * pode trazer vários eventos separados por ';' (req. 3.3.5). */
+        char *sep = (n == max - 1) ? NULL : strchr(linha, ';');
+        if (sep == NULL)
+        {
+            /* Não há mais ';': o resto é o último campo. Se ele é vazio, a
+             * linha terminava em ';' (ou era vazia) e o campo é descartado
+             * (req. 3.3.3). Só aqui: um vazio no MEIO ("1;;5") é guardado. */
+            if (*linha != '\0')
+                campos[n++] = linha;
+            break;
+        }
+        *sep = '\0'; /* corta o campo no lugar do ';' */
+        campos[n++] = linha;
+        linha = sep + 1;
+    }
+
+    return n;
 }
 
 /* Lê um inteiro validando que o texto inteiro é numérico.
@@ -131,13 +184,25 @@ static int split_campos(char *linha, char *campos[], int max)
  * Texto inválido => devolve 0 e sinaliza erro em *ok. */
 static int campo_int(const char *txt, int padrao, int *ok)
 {
-    /* TODO: se txt for NULL/vazio, *ok=1 e devolve 'padrao'. Senão, usar
-     * strtol(txt, &fim, 10) e conferir que 'fim' chegou no '\0' (ou seja,
-     * a string inteira foi consumida, sem lixo depois do número) e que
-     * fim != txt (realmente leu algo). Se não validar, *ok=0 e devolve 0. */
+    char *fim;
+    long valor;
+
     *ok = 1;
-    (void)txt;
-    return padrao;
+    if (txt == NULL || *txt == '\0')
+        return padrao;
+
+    errno = 0;
+    valor = strtol(txt, &fim, 10);
+
+    /* fim == txt:   nenhum dígito foi lido ("abc").
+     * *fim != '\0': sobrou lixo depois do número ("12abc").
+     * ERANGE/limites: número grande demais ("99999999999"). Sem essa checagem
+     * o strtol devolve LONG_MAX e o arquivo errado passaria como válido. */
+    if (fim == txt || *fim != '\0' || errno == ERANGE || valor < INT_MIN || valor > INT_MAX) {
+        *ok = 0;
+        return 0;
+    }
+    return (int)valor;
 }
 
 /* Converte "F0E0D0" em três componentes RGB.
@@ -145,78 +210,249 @@ static int campo_int(const char *txt, int padrao, int *ok)
  * RGB em Hexadecimal, p.ex. 'F0E0D0' indica Red=F0, Green=E0, Blue=D0". */
 static int campo_cor(const char *txt, TCB *t)
 {
-    /* TODO: campo vazio -> usar PADRAO_COR_R/G/B (requisito 3.2) e
-     * devolver sucesso. Senão: aceitar um '#' opcional na frente, exigir
-     * exatamente 6 dígitos hexadecimais depois, e usar sscanf(txt,
-     * "%2x%2x%2x", &r, &g, &b) (com unsigned int) pra extrair os três
-     * bytes. Validar cada caractere com isxdigit antes de confiar no
-     * sscanf. Retornar 0 se o formato não bater. */
-    (void)txt;
-    (void)t;
-    return 0;
+    unsigned int r, g, b; /* o %x do sscanf exige unsigned int, não unsigned char */
+
+    /* Campo vazio: cor padrão (requisito 3.2). */
+    if (txt == NULL || *txt == '\0')
+    {
+        t->r = PADRAO_COR_R;
+        t->g = PADRAO_COR_G;
+        t->b = PADRAO_COR_B;
+        return 1;
+    }
+
+    if (*txt == '#') /* '#' na frente é opcional */
+        txt++;
+
+    /* Exatamente 6 dígitos hexadecimais. A validação vem ANTES do sscanf
+     * porque ele sozinho aceitaria "F0E0D0lixo", espaços e sinal. */
+    if (strlen(txt) != 6)
+        return 0;
+    for (int i = 0; i < 6; i++)
+    {
+        if (!isxdigit((unsigned char)txt[i]))
+            return 0;
+    }
+
+    /* %2x lê dois dígitos hexadecimais por vez: "F0E0D0" -> F0, E0, D0. */
+    sscanf(txt, "%2x%2x%2x", &r, &g, &b);
+    t->r = (unsigned char)r;
+    t->g = (unsigned char)g;
+    t->b = (unsigned char)b;
+    return 1;
 }
 
 /* ----------------------------- carga principal --------------------------- */
 
+/* id;cor;ingresso;duracao;periodo;prazo;lista_eventos
+ * O 7º campo é a lista de eventos e fica com TODO o resto da linha (ver
+ * split_campos), então nenhum evento é perdido. */
+#define MAX_CAMPOS 7
+
+/* campo_int + mensagem de erro pronta: o valor tem que ser um inteiro
+ * >= minimo. Em caso de erro registra o diagnóstico e zera *ok (nunca põe 1:
+ * assim vários campos da mesma linha acumulam no mesmo *ok). */
+static int campo_int_min(Diagnostico *d, int linha, const char *nome,
+                         const char *txt, int padrao, int minimo, int *ok)
+{
+    int leu;
+    int valor = campo_int(txt, padrao, &leu);
+    if (!leu || valor < minimo) {
+        diag_erro(d, "linha %d: %s invalido \"%s\" (esperado um inteiro >= %d)",
+                  linha, nome, txt, minimo);
+        *ok = 0;
+    }
+    return valor;
+}
+
+/* Interpreta o texto do arquivo de configuração e preenche *e.
+ * Retorna 1 se carregou; 0 se houve erro (mensagens em d), e nesse caso *e
+ * fica vazio, sem nada para liberar.
+ *
+ * Não para no primeiro erro: cada linha ruim é reportada e a leitura segue
+ * (por isso os `continue`), para o usuário corrigir tudo de uma vez. */
 int config_carregar_texto(const char *conteudo, Estado *e, Diagnostico *d)
 {
-    /* TODO, nessa ordem:
-     * 1- se conteudo for NULL ou "", diag_erro("arquivo vazio...") e
-     *    retornar 0.
-     *    BOM: se os 3 primeiros bytes forem "\xEF\xBB\xBF", pular os 3.
-     *    Por quê: alguns editores salvam .txt como "UTF-8 com BOM", e o
-     *    arquivo do professor vem de outra máquina. Sem esse pulo, o
-     *    primeiro campo vira "\xEF\xBB\xBFRM" e o erro sai como
-     *    'algoritmo "RM" não existe' -- com o RM aparecendo na tela, porque
-     *    os 3 bytes são invisíveis. Testado no gabarito: falha exatamente
-     *    assim. Comparar com memcmp, não com str_igual_ci.
-     * 2) preencher *e com os valores PADRÃO (requisito 3.2): algoritmo =
-     *    PADRAO_ALGORITMO, quantum = PADRAO_QUANTUM, ncpus = PADRAO_CPUS,
-     *    tarefas/cpus = NULL, ntarefas = 0. Esses padrões são
-     *    sobrescritos pelo que vier no arquivo, campo a campo.
-     * 3) 'conteudo' é const e o split precisa escrever '\0' no meio do
-     *    texto: fazer UMA cópia (malloc(strlen+1) + memcpy) e percorrer a
-     *    cópia linha a linha com strchr(p, '\n'), trocando cada '\n' por
-     *    '\0'. Contar o número da linha (pras mensagens de erro).
-     *    Sem tamanho máximo de linha: diferente do fgets, aqui uma linha
-     *    longa (lista_eventos grande) não é cortada no meio.
-     * 4) trim() a linha inteira; se ficou vazia, `continue` (3.3.6: linha
-     *    em branco não é erro). O trim também remove o '\r' que sobra no
-     *    fim de cada linha de um arquivo do Windows (CRLF), porque
-     *    isspace('\r') é verdadeiro.
-     * 5) split_campos() e, IMPORTANTE, trim() em CADA campo resultante
-     *    (ver o comentário do bug em trim(), acima).
-     * 6) primeira linha não-vazia = cabeçalho: campos[0]=algoritmo
-     *    (aplicar str_maiuscula e copiar pra e->algoritmo com strncpy,
-     *    respeitando o tamanho do array), campos[1]=quantum,
-     *    campos[2]=qtde_cpus (validar >= 1). Usar campo_int e reportar
-     *    erro claro se um campo não for número válido.
-     * 7) linhas seguintes = tarefas: id, cor (campo_cor), ingresso,
-     *    duracao, periodo, prazo (default = periodo, se vazio),
-     *    lista_eventos (só guardar o texto bruto em t.eventos por
-     *    enquanto, projeto B trata o resto).
-     * 8) requisito 4.4: periodo == 0 -> diag_aviso (não é erro) e
-     *    IGNORAR a tarefa (não entra no array); periodo < 0 -> diag_erro
-     *    (isso sim é erro de arquivo).
-     * 9) inicializar os campos de estado dinâmico da TCB (estado =
-     *    EST_INATIVA, exec_restante=0, cpu=-1, ativacoes=0, etc.) antes
-     *    de guardar no array.
-     * 10) guardar cada tarefa válida em e->tarefas, crescendo o array
-     *     dinamicamente (realloc dobrando a capacidade) -- não há limite
-     *     de tarefas (requisito 3.3.1). O arquivo de teste do professor
-     *     tem ~4 KB, o que cabe ~190 tarefas: um vetor de tamanho fixo
-     *     "generoso" (100, 128...) estouraria na demonstração.
-     * 11) depois do laço: free() na cópia do passo 3. Se nenhuma linha
-     *     de cabeçalho foi lida (só linhas em branco), diag_erro.
-     * 12) alocar e->cpus com e->ncpus entradas (id=i, tarefa=-1,
-     *     ticks_desligada=0 cada uma).
-     * 13) e->tick = 0.
-     * 14) retornar 1 se d->n_erros == 0, senão 0 (mesmo que só ALGUMAS
-     *     linhas tenham dado erro -- é melhor reportar todos os erros de
-     *     uma vez do que parar no primeiro, por isso os `continue` em vez
-     *     de `return` nos passos acima). */
-    (void)conteudo;
-    (void)e;
-    (void)d;
-    return 0;
+    char vazio[1] = "";
+    char *copia, *linha, *prox;
+    int num = 0;            /* número da linha, para as mensagens */
+    int tem_cabecalho = 0;
+    int capacidade = 0;     /* tamanho alocado de e->tarefas */
+    int valido = 1;
+
+    /* Valores padrão (requisito 3.2); o arquivo sobrescreve campo a campo. */
+    memset(e, 0, sizeof *e);
+    strcpy(e->algoritmo, PADRAO_ALGORITMO);
+    e->quantum = PADRAO_QUANTUM;
+    e->ncpus = PADRAO_CPUS;
+
+    if (conteudo == NULL || *conteudo == '\0') {
+        diag_erro(d, "arquivo vazio");
+        return 0;
+    }
+
+    /* BOM: alguns editores salvam "UTF-8 com BOM", 3 bytes invisíveis no
+     * começo. Sem pular, o algoritmo viraria "\xEF\xBB\xBFRM" e o erro
+     * mostraria um RM aparentemente correto como inexistente. */
+    if (strncmp(conteudo, "\xEF\xBB\xBF", 3) == 0)
+        conteudo += 3;
+
+    /* 'conteudo' é const e o split escreve '\0' no texto: trabalha numa
+     * cópia. Sem tamanho máximo de linha, ao contrário do fgets. */
+    copia = malloc(strlen(conteudo) + 1);
+    if (copia == NULL) {
+        diag_erro(d, "falta de memoria ao ler o arquivo");
+        return 0;
+    }
+    strcpy(copia, conteudo);
+
+    for (linha = copia; linha != NULL; linha = prox) {
+        char *campos[MAX_CAMPOS];
+        char *txt;
+        int n, i, ok = 1;
+        TCB t;
+
+        /* Corta a linha no '\n' e já guarda onde começa a próxima. */
+        prox = strchr(linha, '\n');
+        if (prox != NULL)
+            *prox++ = '\0';
+        num++;
+
+        /* Linha em branco não é erro (3.3.6); o trim também tira o '\r' de
+         * arquivos do Windows (CRLF). '#' inicia comentário. */
+        txt = trim(linha);
+        if (*txt == '\0' || *txt == '#')
+            continue;
+
+        /* Campo que não veio na linha vale "" (= usar o padrão). O trim é
+         * refeito em CADA campo: ver o comentário em trim(). */
+        n = split_campos(txt, campos, MAX_CAMPOS);
+        for (i = 0; i < MAX_CAMPOS; i++)
+            campos[i] = (i < n) ? trim(campos[i]) : vazio;
+
+        /* ---- primeira linha útil: algoritmo;quantum;qtde_cpus ---- */
+        if (!tem_cabecalho) {
+            tem_cabecalho = 1;
+            if (strlen(campos[0]) >= sizeof e->algoritmo) {
+                diag_erro(d, "linha %d: nome de algoritmo longo demais \"%s\"", num, campos[0]);
+                valido = 0;
+            } else if (*campos[0] != '\0') {
+                str_maiuscula(campos[0]);
+                strcpy(e->algoritmo, campos[0]);
+            }
+            /* Se o algoritmo existe quem confere é o sim_iniciar, que
+             * conhece a tabela de escalonadores.
+             * Quantum 0 é aceito e significa "sem limite de quantum": a
+             * tarefa só sai da CPU quando termina ou quando chega outra mais
+             * prioritária (ver executar() no kernel). O enunciado define o
+             * quantum como o tempo máximo de execução; 0 ao pé da letra seria
+             * "nunca executa", o que não faz sentido simular. */
+            e->quantum = campo_int_min(d, num, "quantum", campos[1], PADRAO_QUANTUM, 0, &valido);
+            e->ncpus = campo_int_min(d, num, "qtde_cpus", campos[2], PADRAO_CPUS, 1, &valido);
+            continue;
+        }
+
+        /* ---- demais linhas: uma tarefa ---- */
+        memset(&t, 0, sizeof t); /* estado dinâmico zerado: EST_INATIVA etc. */
+        t.cpu = -1;
+
+        /* O período vem primeiro: tarefa aperiódica (período 0) é ignorada
+         * com AVISO (requisito 4.4), sem validar o resto da linha. */
+        t.periodo = campo_int_min(d, num, "periodo", campos[4], 0, 0, &ok);
+        if (ok && t.periodo == 0) {
+            diag_aviso(d, "linha %d: tarefa \"%s\" e aperiodica (periodo 0) e foi ignorada",
+                       num, campos[0]);
+            continue;
+        }
+
+        t.id = campo_int_min(d, num, "id", campos[0], -1, 0, &ok);
+        if (!campo_cor(campos[1], &t)) {
+            diag_erro(d, "linha %d: cor invalida \"%s\" (esperado RRGGBB em hexadecimal)",
+                      num, campos[1]);
+            ok = 0;
+        }
+        t.ingresso = campo_int_min(d, num, "ingresso", campos[2], 0, 0, &ok);
+        t.duracao = campo_int_min(d, num, "duracao", campos[3], 0, 1, &ok);
+        if (t.periodo > 0) {
+            /* Prazo vazio ou 0 = o próprio período (deadline igual ao
+             * período, a premissa do RM). O 0 escrito gera AVISO, e não erro:
+             * o enunciado não proíbe, e recusar o arquivo inteiro por isso
+             * impediria a demonstração (req. 3.3.7). */
+            int ok_prazo = 1;
+            t.prazo = campo_int_min(d, num, "prazo", campos[5], t.periodo, 0, &ok_prazo);
+            if (!ok_prazo) {
+                ok = 0;
+            } else if (t.prazo == 0) {
+                diag_aviso(d, "linha %d: tarefa \"%s\" com prazo 0; assumido prazo = periodo (%d)",
+                           num, campos[0], t.periodo);
+                t.prazo = t.periodo;
+            }
+        }
+
+        /* Eventos: só são interpretados no Projeto B; aqui guardamos o texto.
+         * Como é o último campo, ele vem com o resto da linha inteiro. O ';'
+         * final é opcional (req. 3.3.3), então é removido. */
+        {
+            size_t tam = strlen(campos[6]);
+            while (tam > 0 && (campos[6][tam - 1] == ';' || isspace((unsigned char)campos[6][tam - 1])))
+                campos[6][--tam] = '\0';
+            if (tam >= sizeof t.eventos)
+                diag_aviso(d, "linha %d: lista de eventos longa demais; guardados so os primeiros %d caracteres",
+                           num, (int)sizeof t.eventos - 1);
+            snprintf(t.eventos, sizeof t.eventos, "%s", campos[6]);
+        }
+
+        for (i = 0; ok && i < e->ntarefas; i++) {
+            if (e->tarefas[i].id == t.id) {
+                diag_erro(d, "linha %d: id %d repetido", num, t.id);
+                ok = 0;
+            }
+        }
+
+        if (!ok) {
+            valido = 0;
+            continue;
+        }
+
+        /* Sem limite de tarefas (3.3.1): o vetor dobra quando enche. */
+        if (e->ntarefas == capacidade) {
+            int nova = capacidade ? capacidade * 2 : 16;
+            TCB *maior = realloc(e->tarefas, (size_t)nova * sizeof *maior);
+            if (maior == NULL) {
+                diag_erro(d, "falta de memoria na linha %d", num);
+                valido = 0;
+                break;
+            }
+            e->tarefas = maior;
+            capacidade = nova;
+        }
+        e->tarefas[e->ntarefas++] = t;
+    }
+    free(copia);
+
+    if (!tem_cabecalho) {
+        diag_erro(d, "arquivo sem a linha de parametros (algoritmo;quantum;qtde_cpus)");
+        valido = 0;
+    } else if (valido && e->ntarefas == 0) {
+        diag_erro(d, "nenhuma tarefa periodica para simular");
+        valido = 0;
+    }
+
+    /* Processadores: todos começam desligados (tarefa = -1). */
+    if (valido) {
+        e->cpus = calloc((size_t)e->ncpus, sizeof *e->cpus);
+        if (e->cpus == NULL) {
+            diag_erro(d, "falta de memoria para %d CPUs", e->ncpus);
+            valido = 0;
+        }
+    }
+    if (!valido) {
+        estado_liberar(e);
+        return 0;
+    }
+    for (int i = 0; i < e->ncpus; i++) {
+        e->cpus[i].id = i;
+        e->cpus[i].tarefa = -1;
+    }
+    return 1;
 }

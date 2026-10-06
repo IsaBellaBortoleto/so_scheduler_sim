@@ -208,10 +208,11 @@ void escalonador_ordenar(const Escalonador *esc, Estado *e, int *indices, int n)
     }
 
     /* Marca quem ganhou a CPU no sorteio (req. 4.3-5: o Gantt mostra um
-     * marcador). Primeiro zera todas, senão a marca de um tick anterior
-     * ficaria grudada na tarefa. */
-    for (int i = 0; i < n; i++)
-        e->tarefas[indices[i]].sorteada = 0;
+     * marcador). Primeiro zera TODAS as tarefas, e não só as de 'indices':
+     * quem ganhou no sorteio e terminou neste tick já não é candidata, e a
+     * marca ficaria grudada nela até a próxima ativação. */
+    for (int i = 0; i < e->ntarefas; i++)
+        e->tarefas[i].sorteada = 0;
 
     /* O sorteio só decide quem executa quando o empate atravessa o corte das
      * CPUs: alguém que ficou com vaga empata em tudo com a primeira tarefa

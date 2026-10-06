@@ -199,6 +199,13 @@ static void teste_escalonador(void)
         assert(t[0].sorteada == 0 && t[1].sorteada == 0 && t[2].sorteada == 0);
         t[0].duracao = 2;
 
+        /* Marca antiga em tarefa que nem e mais candidata (terminou): tem
+         * que ser apagada mesmo estando fora de 'ind'. */
+        t[2].sorteada = 1;
+        ind[0] = 0; ind[1] = 1;
+        escalonador_ordenar(rm, &e, ind, 2);
+        assert(t[2].sorteada == 0);
+
         /* Vetor vazio ou com uma tarefa: nao pode quebrar. */
         escalonador_ordenar(rm, &e, ind, 0);
         escalonador_ordenar(rm, &e, ind, 1);
@@ -221,28 +228,104 @@ static void teste_escalonador(void)
     printf("autoteste: interface do escalonador ... ok\n");
 }
 
+/* Parser do arquivo de configuracao (config.h). Como config_carregar_texto
+ * recebe TEXTO, o teste nao precisa de arquivo nenhum. */
+static void teste_config(void)
+{
+    /* Uma string com as regras que mais quebram: algoritmo em minusculas
+     * (3.3.2), linha com e sem ';' final (3.3.3), linha em branco, espacos
+     * nos campos e comentario (3.3.6), CRLF de arquivo do Windows, cor e
+     * prazo vazios (3.2) e uma tarefa aperiodica (4.4). */
+    static const char texto[] =
+        "\xEF\xBB\xBF"                       /* BOM: tem que ser pulado */
+        "# comentario\r\n"
+        " edf ; 3 ; 2 ;\r\n"
+        "\r\n"
+        "1;FF0000;0;3;10;8;\r\n"
+        " 2 ; ; 1 ; 2 ; 5 \r\n"
+        "3;00FF00;0;1;0;7\r\n";
+    static Diagnostico d;                    /* static: sao ~25 KB */
+    static char grande[8192];
+    Estado e;
+    int i, pos;
+
+    memset(&d, 0, sizeof d);
+    assert(config_carregar_texto(texto, &e, &d) == 1);
+    assert(d.n_erros == 0 && d.n_avisos == 1);          /* a aperiodica */
+    assert(strcmp(e.algoritmo, "EDF") == 0);
+    assert(e.quantum == 3 && e.ncpus == 2 && e.tick == 0);
+    assert(e.ntarefas == 2);
+    assert(e.tarefas[0].id == 1 && e.tarefas[0].r == 0xFF && e.tarefas[0].prazo == 8);
+    assert(e.tarefas[1].id == 2 && e.tarefas[1].r == PADRAO_COR_R);
+    assert(e.tarefas[1].ingresso == 1 && e.tarefas[1].duracao == 2);
+    assert(e.tarefas[1].prazo == 5);                    /* vazio = periodo */
+    assert(e.tarefas[0].cpu == -1 && e.tarefas[0].estado == EST_INATIVA);
+    assert(e.cpus[1].id == 1 && e.cpus[1].tarefa == -1);
+    estado_liberar(&e);
+
+    /* Cabecalho vazio: valem os padroes (3.2). */
+    memset(&d, 0, sizeof d);
+    assert(config_carregar_texto(";;\n7;;0;1;4", &e, &d) == 1);
+    assert(strcmp(e.algoritmo, PADRAO_ALGORITMO) == 0);
+    assert(e.quantum == PADRAO_QUANTUM && e.ncpus == PADRAO_CPUS);
+    estado_liberar(&e);
+
+    /* Arquivo ruim: TODOS os erros sao reportados de uma vez (cor, duracao,
+     * id repetido) e nada fica alocado. */
+    memset(&d, 0, sizeof d);
+    assert(config_carregar_texto("RM;2;1\n1;XYZ;0;1;4\n2;;0;abc;4\n3;;0;1;4\n3;;0;1;4",
+                                 &e, &d) == 0);
+    assert(d.n_erros == 3);
+    assert(e.tarefas == NULL && e.cpus == NULL && e.ntarefas == 0);
+
+    memset(&d, 0, sizeof d);
+    assert(config_carregar_texto("", &e, &d) == 0 && d.n_erros == 1);
+    memset(&d, 0, sizeof d);
+    assert(config_carregar_texto("RM;2;0\n1;;0;1;4", &e, &d) == 0);   /* 0 CPUs */
+    memset(&d, 0, sizeof d);
+    assert(config_carregar_texto("RM;2;1\n", &e, &d) == 0);           /* sem tarefas */
+
+    /* Periodo negativo e ERRO (3.3), e a mensagem traz o numero da linha
+     * contando as linhas em branco, para bater com o editor do usuario. */
+    memset(&d, 0, sizeof d);
+    assert(config_carregar_texto("RM;2;1\n\n1;;0;1;-4", &e, &d) == 0);
+    assert(d.n_erros == 1 && strstr(d.erros[0], "linha 3") != NULL);
+
+    /* Tres decisoes de projeto, na mesma leitura:
+     *  - quantum 0 e aceito (significa "sem limite de quantum");
+     *  - prazo 0 escrito NAO recusa o arquivo: vira o periodo, com aviso;
+     *  - a lista de eventos fica inteira, com os ';' do meio, e sem o ';'
+     *    final (3.3.3 e 3.3.5). */
+    memset(&d, 0, sizeof d);
+    assert(config_carregar_texto("RM;0;1\n"
+                                 "1;;0;1;6;0\n"
+                                 "2;;0;1;8;8;IO:2-1;IO:3-2;ML1:4;\n"
+                                 "3;;0;1;9;9;\n", &e, &d) == 1);
+    assert(e.quantum == 0);
+    assert(e.tarefas[0].prazo == 6 && d.n_avisos == 1 && d.n_erros == 0);
+    assert(strcmp(e.tarefas[1].eventos, "IO:2-1;IO:3-2;ML1:4") == 0);
+    assert(e.tarefas[2].eventos[0] == '\0');
+    estado_liberar(&e);
+
+    /* O arquivo do professor tem ~4 KB: ~190 tarefas tem que caber, o vetor
+     * cresce sozinho (3.3.1). */
+    pos = snprintf(grande, sizeof grande, "RM;2;4\n");
+    for (i = 1; i <= 190; i++)
+        pos += snprintf(grande + pos, sizeof grande - (size_t)pos, "%d;A0B0C0;0;1;%d;%d;\n", i, i + 5, i + 5);
+    memset(&d, 0, sizeof d);
+    assert(config_carregar_texto(grande, &e, &d) == 1);
+    assert(e.ntarefas == 190 && e.tarefas[189].id == 190 && e.tarefas[189].periodo == 195);
+    estado_liberar(&e);
+
+    printf("autoteste: arquivo de configuracao ... ok\n");
+}
+
 static void autoteste(void)
 {
     teste_escalonador();
+    teste_config();
 
-    /* TODO: como config_carregar_texto recebe TEXTO, o teste nao precisa
-     * de arquivo nenhum: passe uma string literal que exercite, de uma vez,
-     * as regras do parser que mais quebram:
-     *   - algoritmo em minusculas              (req. 3.3.2)
-     *   - linha terminando com ';'              (req. 3.3.3)
-     *   - linha em branco e espacos nos campos  (req. 3.3.6)
-     *   - quebras CRLF ("\r\n"), como num .txt do Windows
-     *   - uma tarefa aperiodica (periodo = 0)   (req. 4.4: ignorada + aviso)
-     * e conferir com assert o que foi extraido.
-     *
-     * TODO: os dois casos do arquivo do professor (vem do pendrive dele,
-     * ~4 KB, gerado em outra maquina):
-     *   - a MESMA string com "\xEF\xBB\xBF" na frente (BOM) tem que dar o
-     *     mesmo resultado. E o caso que derruba o parser se esquecido;
-     *   - ~190 tarefas geradas num laco com snprintf num buffer de ~5 KB:
-     *     ntarefas tem que bater, sem estourar nada.
-     *
-     * TODO: iniciar a simulacao com o Estado pequeno e conferir:
+    /* TODO: iniciar a simulacao com o Estado pequeno e conferir:
      *   - sim_executar_tudo termina com MAX_ATIVACOES em cada tarefa;
      *   - DETERMINISMO: retroceder 2 ticks e avancar 2 volta exatamente ao
      *     mesmo estado (e a garantia da qual o requisito 1.5.2 depende);
