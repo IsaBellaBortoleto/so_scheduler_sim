@@ -247,23 +247,44 @@ static void verificar_prazos(Simulacao *s)
 
 int sim_iniciar(Simulacao *s, Estado *inicial, Diagnostico *d)
 {
-    /* TODO:
-     * 1) memset(s, 0, sizeof(*s)) pra começar limpo.
-     * 2) s->esc = escalonador_buscar(inicial->algoritmo); se vier NULL,
-     *    diag_erro(d, "algoritmo '%s' não reconhecido", ...) e devolver 0.
-     * 3) s->atual = estado_clonar(inicial) -- cópia independente, pra
-     *    quem chamou poder liberar o 'inicial' original sem afetar a
-     *    simulação.
-     * 4) chamar ativar(s) (ativações que já valem no tick 0) e depois
-     *    escalonar(s) (primeira atribuição de CPUs).
-     * 5) checar todas_concluidas(&s->atual) e ajustar s->terminada.
-     * 6) snapshot(s) -- historico[0] = fotografia inicial (requisito
-     *    1.5.2: o histórico começa no tick 0, não no tick 1).
-     * 7) devolver 1. */
-    (void)s;
-    (void)inicial;
-    (void)d;
-    return 0;
+    /* A busca vem ANTES de mexer em 's': se o algoritmo não existe, a
+     * simulação que já estava carregada continua intacta. */
+    const Escalonador *esc = escalonador_buscar(inicial->algoritmo);
+    if (esc == NULL)
+    {
+        /* Erro claro (requisito 5): diz o que veio e o que é aceito. */
+        char lista[128] = "";
+        for (int i = 0; i < escalonador_qtde(); i++)
+        {
+            size_t usado = strlen(lista);
+            snprintf(lista + usado, sizeof lista - usado, "%s%s",
+                     i ? ", " : "", escalonador_em(i)->nome);
+        }
+        diag_erro(d, "algoritmo \"%s\" nao existe (disponiveis: %s)",
+                  inicial->algoritmo, lista);
+        return 0;
+    }
+
+    /* Começa limpo. Quem chama deve ter dado sim_liberar na simulação
+     * anterior, senão o histórico dela vaza aqui. */
+    memset(s, 0, sizeof *s);
+    s->esc = esc;
+
+    /* Cópia independente: quem chamou pode liberar 'inicial' depois. Se o
+     * malloc falhar, o clone volta com ntarefas/ncpus zerados. */
+    s->atual = estado_clonar(inicial);
+    if (s->atual.ntarefas != inicial->ntarefas || s->atual.ncpus != inicial->ncpus)
+    {
+        estado_liberar(&s->atual);
+        diag_erro(d, "falta de memoria ao iniciar a simulacao");
+        return 0;
+    }
+
+    ativar(s);    /* ativações que já valem no tick 0 */
+    escalonar(s); /* primeira atribuição de CPUs */
+    s->terminada = todas_concluidas(&s->atual);
+    snapshot(s);  /* historico[0] = tick 0 (requisito 1.5.2) */
+    return 1;
 }
 
 int sim_avancar(Simulacao *s)

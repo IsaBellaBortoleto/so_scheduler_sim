@@ -1,18 +1,30 @@
 /* ============================================================================
- * config.c — Parser do arquivo de configuração (requisito 3.3)
- * ----------------------------------------------------------------------------
- * Formato esperado (texto simples):
+ * config.c — leitura do arquivo de configuração (requisito 3.3)
  *
- *   linha 1 : algoritmo_escalonamento;quantum;qtde_cpus
- *   linha N : id;cor;ingresso;duracao;periodo;prazo;lista_eventos
+ * FORMATO
+ *   1ª linha útil : algoritmo;quantum;qtde_cpus
+ *   demais linhas : id;cor;ingresso;duracao;periodo;prazo;lista_eventos
  *
- * Regras exigidas pelo enunciado e onde elas estão tratadas neste arquivo:
- *   3.3.2 strings case-insensitive .......... str_igual_ci / str_maiuscula
- *   3.3.3 ';' final é opcional ............... split_campos ignora campo vazio final
- *   3.3.4 qualquer lugar, inclusive pendrive . o C recebe o CONTEÚDO, escolhido
- *                                              pelo seletor de arquivo da página
- *   3.3.6 espaços e linhas em branco não são erro ... trim + salto de linha vazia
- *   3.3.6 erros claros com o motivo .......... diag_erro("linha %d: ...")
+ * RESUMO
+ *  - Recebe o TEXTO do arquivo, não um caminho. Quem escolhe o arquivo é o
+ *    seletor da página, então funciona de qualquer lugar, inclusive do
+ *    pendrive (req. 3.3.4). O C nunca abre arquivo.
+ *  - Erro REPROVA o arquivo; aviso não. Todos os erros saem de uma vez, com
+ *    o número da linha (req. 3.3.6).
+ *  - Arquivo de outra máquina: aceita BOM e quebras do Windows (CRLF).
+ *
+ * ONDE CADA REGRA DO ENUNCIADO É TRATADA
+ *   3.2   valores padrão ................. campo vazio em campo_int/campo_cor
+ *   3.3.1 sem limite de tarefas .......... vetor que dobra (realloc)
+ *   3.3.2 maiúsculas/minúsculas .......... str_igual_ci, str_maiuscula
+ *   3.3.3 ';' final opcional ............. split_campos
+ *   3.3.6 espaços e linhas em branco ..... trim
+ *   4.4   tarefa aperiódica (período 0) .. ignorada com AVISO
+ *
+ * DECISÕES 
+ *   prazo vazio ou 0 ... vale o período (o 0 escrito gera aviso)
+ *   quantum 0 .......... sem limite de quantum
+ *   lista de eventos ... guardada inteira; só é interpretada no Projeto B
  * ==========================================================================*/
 #include "config.h"
 
@@ -66,6 +78,8 @@ void diag_aviso(Diagnostico *d, const char *fmt, ...)
 
 /* ------------------------------ utilitários ------------------------------ */
 
+/* Compara dois textos sem diferenciar maiúsculas: "rm" == "RM" (req. 3.3.2).
+ * Devolve 1 se iguais, 0 se diferentes (o contrário do strcmp). */
 int str_igual_ci(const char *a, const char *b)
 {
     if(a==NULL || b==NULL)
@@ -90,18 +104,17 @@ int str_igual_ci(const char *a, const char *b)
     return *a == *b;
 }
 
-/* Remove espaços, tabs e quebras de linha ('\r', '\n') do início e do fim,
- * IN PLACE. Requisito 3.3.6: "espaços e linhas em branco não representam
- * erros". 's' não pode ser NULL.
+/* Tira espaços, tabs e '\r' do começo e do fim (req. 3.3.6). Não copia nada:
+ * corta o fim com '\0' e devolve um ponteiro para o começo de verdade.
  *
- * USE O RETORNO, não 's': o fim é cortado escrevendo '\0' na própria string,
- * mas o início é só "pulado" -- a função devolve um ponteiro para o primeiro
- * caractere útil, dentro do mesmo buffer (nada é copiado nem alocado, então
- * não há free). String só de espaços devolve "".
+ * USE O RETORNO: linha = trim(linha). Texto só de espaços devolve "", e é
+ * assim que uma linha em branco é pulada sem virar erro.
  *
- * BUG CLÁSSICO: aparar a linha inteira não apara os campos. Em " 1 ; 5 " o
- * trim da linha tira só as pontas; depois do split os campos ainda são "1 "
- * e " 5". Por isso o trim é chamado de novo em CADA campo. */
+ * O '\r' é o que sobra no fim das linhas de arquivos do Windows: tirá-lo
+ * aqui é o que faz o parser aceitar CRLF.
+ *
+ * Aparar a linha não apara os campos: em " 1 ; 5 " sobram "1 " e " 5" depois
+ * do split. Por isso o trim é chamado de novo em CADA campo. */
 static char *trim(char *s)
 {
     /* Fim primeiro: anda de trás para frente trocando cada espaço por '\0'.
@@ -138,18 +151,15 @@ static void str_maiuscula(char *s)
 
 }
 
-/* Quebra a linha em campos separados por ';'.
+/* Quebra a linha nos ';'. Não copia nada: troca cada ';' por '\0' e guarda em
+ * `campos` um ponteiro para o começo de cada pedaço. Devolve quantos achou.
  *
- * Por que NÃO usar strtok? Porque strtok funde separadores consecutivos:
- * "1;;5" viraria dois campos em vez de três, e um campo vazio é
- * semanticamente diferente de um campo ausente (campo vazio => usar o valor
- * padrão do requisito 3.2). A divisão manual preserva os campos vazios.
+ * Por que NÃO strtok: ele junta separadores seguidos, e "1;;5" viraria dois
+ * campos. O vazio do MEIO precisa existir: significa "use o valor padrão"
+ * (req. 3.2). Se sumisse, os campos seguintes andariam uma casa.
  *
- * Requisito 3.3.3: se a linha terminar em ';', o campo vazio final é
- * descartado — as duas formas devem ser aceitas.
- *
- * Retorna a quantidade de campos escritos em `campos`.
- */
+ * O vazio do FIM é descartado: é só o resto depois de um ';' final, que o
+ * enunciado manda aceitar (req. 3.3.3). */
 static int split_campos(char *linha, char *campos[], int max)
 {
     int n = 0;
@@ -179,9 +189,15 @@ static int split_campos(char *linha, char *campos[], int max)
     return n;
 }
 
-/* Lê um inteiro validando que o texto inteiro é numérico.
- * Campo vazio => devolve `padrao` (requisito 3.2).
- * Texto inválido => devolve 0 e sinaliza erro em *ok. */
+/* Converte o texto de um campo em número.
+ * Campo vazio  => devolve `padrao`, sem erro (req. 3.2).
+ * Texto ruim   => devolve 0 e põe 0 em *ok.
+ *
+ * Por que strtol e não atoi: o strtol informa ONDE parou de ler. É assim que
+ * "3x" e "3.5" são recusados; o atoi devolveria 3 sem reclamar.
+ *
+ * Número negativo é aceito aqui. Quem decide se pode é quem chama, que sabe
+ * dar a mensagem certa (ex. "periodo invalido"). */
 static int campo_int(const char *txt, int padrao, int *ok)
 {
     char *fim;
@@ -268,6 +284,13 @@ static int campo_int_min(Diagnostico *d, int linha, const char *nome,
 /* Interpreta o texto do arquivo de configuração e preenche *e.
  * Retorna 1 se carregou; 0 se houve erro (mensagens em d), e nesse caso *e
  * fica vazio, sem nada para liberar.
+ *
+ * ROTEIRO
+ *   1. preenche os valores padrão;
+ *   2. pula o BOM e faz uma cópia do texto (o split escreve nela);
+ *   3. para cada linha: apara, pula se estiver em branco, quebra nos ';';
+ *   4. a 1ª linha útil é o cabeçalho; as outras são tarefas;
+ *   5. no fim, cria o vetor de CPUs, todas desligadas.
  *
  * Não para no primeiro erro: cada linha ruim é reportada e a leitura segue
  * (por isso os `continue`), para o usuário corrigir tudo de uma vez. */

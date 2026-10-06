@@ -320,10 +320,187 @@ static void teste_config(void)
     printf("autoteste: arquivo de configuracao ... ok\n");
 }
 
+/* sim_iniciar (kernel.h): monta a simulacao a partir do Estado lido. */
+static void teste_sim_iniciar(void)
+{
+    static Diagnostico d;
+    Simulacao s;
+    Estado e;
+
+    memset(&d, 0, sizeof d);
+    assert(config_carregar_texto("RM;2;1\n1;;0;2;5\n2;;3;1;4", &e, &d) == 1);
+
+    /* Algoritmo inexistente: erro com a lista dos disponiveis, e a
+     * simulacao que ja existia NAO pode ser tocada. */
+    memset(&s, 0, sizeof s);
+    s.n_hist = 77;
+    strcpy(e.algoritmo, "XYZ");
+    assert(sim_iniciar(&s, &e, &d) == 0);
+    assert(d.n_erros == 1 && strstr(d.erros[0], "XYZ") && strstr(d.erros[0], "EDF"));
+    assert(s.n_hist == 77);
+
+    /* Algoritmo valido (em minusculas): historico comeca no tick 0, e a
+     * tarefa que ingressa em 0 ja foi ativada; a que ingressa em 3, nao. */
+    memset(&s, 0, sizeof s);
+    strcpy(e.algoritmo, "rm");
+    assert(sim_iniciar(&s, &e, &d) == 1);
+    assert(s.esc == escalonador_buscar("RM") && s.terminada == 0);
+    assert(s.n_hist == 1 && s.historico[0].tick == 0);
+    /* So confere a ATIVACAO. Se ela ja ganhou CPU depende da escalonar(), que
+     * e de outro card; este teste nao pode depender dela. */
+    assert(s.atual.tarefas[0].estado != EST_INATIVA && s.atual.tarefas[0].deadline_abs == 5);
+    assert(s.atual.tarefas[1].estado == EST_INATIVA);
+
+    /* Copia independente: liberar o Estado original nao afeta a simulacao. */
+    assert(s.atual.tarefas != e.tarefas);
+    estado_liberar(&e);
+    assert(s.atual.ntarefas == 2 && s.atual.tarefas[1].id == 2);
+    sim_liberar(&s);
+
+    printf("autoteste: sim_iniciar ... ok\n");
+}
+
+/* Carrega um texto e inicia a simulacao; o Estado lido e liberado aqui
+ * porque sim_iniciar guarda uma copia. */
+static void iniciar_de_texto(Simulacao *s, const char *texto)
+{
+    static Diagnostico d;
+    Estado e;
+
+    memset(&d, 0, sizeof d);
+    memset(s, 0, sizeof *s);
+    assert(config_carregar_texto(texto, &e, &d) == 1);
+    assert(sim_iniciar(s, &e, &d) == 1);
+    estado_liberar(&e);
+}
+
+/* Atribuicao de CPUs (escalonar, em kernel.c), vista pelo estado do tick. */
+static void teste_escalonar(void)
+{
+    Simulacao s;
+    TCB *t;
+    CPU *c;
+
+    /* 3 tarefas, 2 CPUs, RM: periodos 12, 6 e 9 -> rodam a de 6 e a de 9,
+     * nessa ordem de CPU; a de 12 espera PRONTA. Nenhuma CPU ociosa. */
+    iniciar_de_texto(&s, "RM;2;2\n1;;0;2;12\n2;;0;2;6\n3;;0;2;9");
+    t = s.atual.tarefas; c = s.atual.cpus;
+    assert(t[1].estado == EST_EXECUTANDO && t[1].cpu == 0 && c[0].tarefa == 1);
+    assert(t[2].estado == EST_EXECUTANDO && t[2].cpu == 1 && c[1].tarefa == 2);
+    assert(t[0].estado == EST_PRONTA && t[0].cpu == -1);
+    assert(t[1].quantum_restante == 2);
+    assert(c[0].ticks_desligada == 0 && c[1].ticks_desligada == 0);
+    sim_liberar(&s);
+
+    /* 1 tarefa, 3 CPUs: duas ficam desligadas e contam o tick ocioso. */
+    iniciar_de_texto(&s, "RM;2;3\n1;;0;2;5");
+    c = s.atual.cpus;
+    assert(c[0].tarefa == 0 && c[1].tarefa == -1 && c[2].tarefa == -1);
+    assert(c[0].ticks_desligada == 0 && c[1].ticks_desligada == 1 && c[2].ticks_desligada == 1);
+    sim_liberar(&s);
+
+    /* PREEMPCAO: a tarefa 1 (periodo 10) roda sozinha no tick 0; no tick 1
+     * chega a tarefa 2 (periodo 4, mais prioritaria no RM) e toma a CPU. A
+     * tarefa 1 volta a PRONTA guardando o que faltava executar. */
+    iniciar_de_texto(&s, "RM;0;1\n1;;0;3;10\n2;;1;1;4");
+    t = s.atual.tarefas; c = s.atual.cpus;
+    assert(t[0].estado == EST_EXECUTANDO && c[0].tarefa == 0);
+    assert(sim_avancar(&s) == 1);
+    t = s.atual.tarefas; c = s.atual.cpus;
+    assert(t[1].estado == EST_EXECUTANDO && t[1].cpu == 0 && c[0].tarefa == 1);
+    assert(t[0].estado == EST_PRONTA && t[0].cpu == -1 && t[0].exec_restante == 2);
+    /* Tick 2: a tarefa 2 terminou e a 1 retoma a CPU. */
+    assert(sim_avancar(&s) == 1);
+    t = s.atual.tarefas; c = s.atual.cpus;
+    assert(t[1].estado == EST_INATIVA && t[0].estado == EST_EXECUTANDO && c[0].tarefa == 0);
+    assert(s.n_hist == 3);
+    sim_liberar(&s);
+
+    /* FIM DA SIMULACAO: so termina quando TODAS as tarefas concluem as
+     * MAX_ATIVACOES (req. 4.4). A tarefa 1 (periodo 2) acaba bem antes da 2
+     * (periodo 5): enquanto a 2 nao acabar, a simulacao tem que continuar. */
+    iniciar_de_texto(&s, "RM;0;1\n1;;0;1;2\n2;;0;1;5");
+    while (s.atual.tarefas[0].estado != EST_CONCLUIDA)
+        assert(sim_avancar(&s) == 1);
+    assert(s.terminada == 0 && s.atual.tarefas[1].estado != EST_CONCLUIDA);
+    while (sim_avancar(&s))
+        ;
+    assert(s.terminada == 1 && s.atual.tick < MAX_TICKS);
+    assert(s.atual.tarefas[0].ativacoes == MAX_ATIVACOES);
+    assert(s.atual.tarefas[1].ativacoes == MAX_ATIVACOES);
+    assert(sim_avancar(&s) == 0);                 /* terminada: nao anda mais */
+    sim_liberar(&s);
+
+    printf("autoteste: escalonar (CPUs e preempcao) ... ok\n");
+}
+
+/* Perda de prazo (verificar_prazos) e regras que valem em TODO tick. */
+static void teste_prazos(void)
+{
+    Simulacao s;
+    int i, c, prontas, livres;
+
+    /* Prazo 4, duracao 4: termina exatamente no prazo. NAO perdeu. */
+    iniciar_de_texto(&s, "RM;0;1\n1;;0;4;20;4");
+    for (i = 0; i < 6; i++) {
+        sim_avancar(&s);
+        assert(s.atual.tarefas[0].perdeu_prazo == 0);
+    }
+    sim_liberar(&s);
+
+    /* Prazo 4, duracao 5: quando o relogio chega a 4 ela ainda esta ativa,
+     * entao perdeu. A marca aparece NO tick 4, o momento exato (req. 2.2),
+     * e nao no 5. Com "tick > prazo" esse caso nunca seria detectado. */
+    iniciar_de_texto(&s, "RM;0;1\n1;;0;5;20;4");
+    for (i = 0; i < 3; i++)
+        sim_avancar(&s);
+    assert(s.atual.tick == 3 && s.atual.tarefas[0].perdeu_prazo == 0);
+    sim_avancar(&s);
+    assert(s.atual.tick == 4 && s.atual.tarefas[0].perdeu_prazo == 1);
+    /* Quem perdeu o prazo continua executando ate terminar (req. 3.3). */
+    assert(s.atual.tarefas[0].estado == EST_EXECUTANDO);
+    sim_avancar(&s);
+    assert(s.atual.tarefas[0].ativacoes == 1);
+    sim_liberar(&s);
+
+    /* Conta feita a mao: periodo 6, duracao 2. A 10a ativacao comeca no tick
+     * 54 e termina no 56. O historico tem uma foto por tick, mais a do 0. */
+    iniciar_de_texto(&s, "RM;0;1\n1;;0;2;6");
+    while (sim_avancar(&s))
+        ;
+    assert(s.atual.tick == 56 && s.n_hist == 57);
+    sim_liberar(&s);
+
+    /* Requisito 1.2: em nenhum tick pode haver tarefa PRONTA e CPU ociosa
+     * ao mesmo tempo. Conferido do tick 0 ate o fim da simulacao. */
+    iniciar_de_texto(&s, "RM;2;2\n1;;0;2;6\n2;;0;3;9\n3;;0;2;12;10\n4;;4;1;8");
+    do {
+        prontas = livres = 0;
+        for (i = 0; i < s.atual.ntarefas; i++)
+            prontas += (s.atual.tarefas[i].estado == EST_PRONTA);
+        for (c = 0; c < s.atual.ncpus; c++)
+            livres += (s.atual.cpus[c].tarefa == -1);
+        assert(prontas == 0 || livres == 0);
+    } while (sim_avancar(&s));
+    sim_liberar(&s);
+
+    printf("autoteste: prazos e simulacao completa ... ok\n");
+}
+
 static void autoteste(void)
 {
     teste_escalonador();
     teste_config();
+    teste_sim_iniciar();
+
+    /* DESLIGADOS ate o nucleo da simulacao ficar pronto (cards da Ana):
+     * dependem de escalonar(), todas_concluidas(), sim_avancar() e
+     * verificar_prazos(). Os dois testes continuam escritos acima e servem de
+     * gabarito: quando essas funcoes existirem, basta tirar o comentario.
+     *
+     *   teste_escalonar();
+     *   teste_prazos();
+     */
 
     /* TODO: iniciar a simulacao com o Estado pequeno e conferir:
      *   - sim_executar_tudo termina com MAX_ATIVACOES em cada tarefa;
