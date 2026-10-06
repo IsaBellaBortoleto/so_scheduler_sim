@@ -9,7 +9,9 @@
  *   1. registra os algoritmos de escalonamento;
  *   2. atende --teste, se pedido;
  *   3. cria a Simulacao VAZIA -- o arquivo de configuracao e escolhido pelo
- *      usuario na pagina (POST /api/carregar), nao aqui;
+ *      usuario no seletor de arquivo da pagina, que envia o conteudo
+ *      (POST /api/carregar). Funciona direto do pendrive do professor,
+ *      sem copiar nada para a maquina;
  *   4. abre o navegador e entrega o controle ao servidor, que so devolve
  *      quando o programa for encerrado;
  *   5. libera a memoria da simulacao.
@@ -41,29 +43,41 @@
  * ========================================================================*/
 static void autoteste(void)
 {
-    /* TODO: montar um arquivo de configuracao temporario com fopen/fprintf
-     * que exercite, de uma vez, as regras do parser que mais quebram:
+    /* TODO: como config_carregar_texto recebe TEXTO, o teste nao precisa
+     * de arquivo nenhum: passe uma string literal que exercite, de uma vez,
+     * as regras do parser que mais quebram:
      *   - algoritmo em minusculas              (req. 3.3.2)
      *   - linha terminando com ';'              (req. 3.3.3)
      *   - linha em branco e espacos nos campos  (req. 3.3.6)
+     *   - quebras CRLF ("\r\n"), como num .txt do Windows
      *   - uma tarefa aperiodica (periodo = 0)   (req. 4.4: ignorada + aviso)
-     * e conferir com assert o que config_carregar extraiu dele.
+     * e conferir com assert o que foi extraido.
      *
-     * TODO: iniciar a simulacao com esse Estado e conferir:
+     * TODO: os dois casos do arquivo do professor (vem do pendrive dele,
+     * ~4 KB, gerado em outra maquina):
+     *   - a MESMA string com "\xEF\xBB\xBF" na frente (BOM) tem que dar o
+     *     mesmo resultado. E o caso que derruba o parser se esquecido;
+     *   - ~190 tarefas geradas num laco com snprintf num buffer de ~5 KB:
+     *     ntarefas tem que bater, sem estourar nada.
+     *
+     * TODO: iniciar a simulacao com o Estado pequeno e conferir:
      *   - sim_executar_tudo termina com MAX_ATIVACOES em cada tarefa;
      *   - DETERMINISMO: retroceder 2 ticks e avancar 2 volta exatamente ao
      *     mesmo estado (e a garantia da qual o requisito 1.5.2 depende);
      *   - sim_editar_tarefa RECUSA uma edicao invalida (ex. prazo 0) e
      *     preenche o motivo (req. 3.4);
-     *   - gantt_svg consegue gravar o arquivo.
+     *   - gantt_svg devolve 1 para a simulacao inteira (0..n_hist-1) e
+     *     para uma janela, e 0 para um intervalo invalido (tick_ini >
+     *     tick_fim). Grave num arquivo de nome fixo na pasta atual com
+     *     fopen e apague com remove() -- tmpfile() falha no Windows (ver
+     *     gantt.h).
      *
      * TODO: depois que estado_json.c existir, conferir tambem que
      * estado_json_atual devolve -1 com um buffer pequeno demais em vez de
      * escrever pela metade -- e o contrato documentado em estado_json.h, e
      * um JSON cortado quebraria a pagina sem mensagem nenhuma.
      *
-     * No fim: remove() nos arquivos temporarios, sim_liberar, e um printf
-     * dizendo que tudo passou. */
+     * No fim: sim_liberar e um printf dizendo que tudo passou. */
 }
 
 /* ========================================================================== */
@@ -73,7 +87,7 @@ int main(int argc, char **argv)
     Simulacao sim;
     int porta = PORTA_PADRAO;
 
-    /* Tem que ser a PRIMEIRA coisa. config_carregar/sim_iniciar procuram o
+    /* Tem que ser a PRIMEIRA coisa. config_carregar_texto/sim_iniciar procuram o
      * algoritmo do arquivo pelo nome na tabela de escalonadores; com a
      * tabela vazia, todo arquivo valido falharia com "algoritmo inexistente"
      * -- e o erro apontaria para o arquivo, nao para a causa real. */

@@ -87,26 +87,9 @@ button:disabled { opacity: .4; cursor: not-allowed; }
   border-radius: 6px;
 }
 
-#svg-gantt { display: block; }
-
-#legenda {
-  margin-top: 10px;
-  display: flex;
-  gap: 18px;
-  flex-wrap: wrap;
-  font-size: .8rem;
-  color: var(--cor-texto-fraco);
-}
-
-.item-legenda { display: flex; align-items: center; gap: 6px; }
-
-.amostra { width: 16px; height: 12px; border-radius: 2px; display: inline-block; border: 1px solid var(--cor-borda); }
-.amostra-executando { background: var(--cor-destaque); }
-.amostra-pronta { background: transparent; }
-.amostra-suspensa { background: repeating-linear-gradient(45deg, #000 0 3px, #333 3px 6px); }
-
-.marcador { display: inline-block; width: 1.2em; text-align: center; }
-.marcador-erro { color: var(--cor-erro); }
+/* O SVG vem do servidor no tamanho natural; a rolagem fica por conta do
+   #gantt-scroll. Sem max-width, senao o navegador encolhe o grafico. */
+#img-gantt { display: block; max-width: none; }
 
 #painel-lateral {
   width: 300px;

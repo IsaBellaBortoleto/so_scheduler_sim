@@ -8,6 +8,7 @@
  *   POST /api/avancar, POST /api/retroceder, POST /api/executar_tudo,
  *   POST /api/editar (em caso de sucesso):
  *   {
+ *     "carregado": bool,   (false = nenhum arquivo carregado ainda)
  *     "tick": int, "terminada": bool,
  *     "algoritmo": string, "quantum": int, "ncpus": int,
  *     "ultimo_evento": string,
@@ -23,8 +24,12 @@
  *     } ]
  *   }
  *
- *   POST /api/carregar   corpo: { "caminho": "config.txt" }
- *     sucesso -> Estado (acima).
+ *   POST /api/carregar   corpo: os BYTES do arquivo escolhido no seletor,
+ *                        exatamente como estão no disco (pode ter BOM e
+ *                        CRLF -- quem trata é o C, em config_carregar_texto).
+ *     sucesso -> Estado (acima) + "avisos": [string...]. Carregar com
+ *                sucesso também pode gerar avisos (ex.: tarefa aperiódica
+ *                ignorada), e o req. 4.4 exige que cheguem ao usuário.
  *     falha   -> { "erro": true, "erros": [string...], "avisos": [string...] }
  *
  *   POST /api/avancar, /api/retroceder, /api/executar_tudo   (sem corpo)
@@ -33,30 +38,28 @@
  *   POST /api/editar     corpo: { "id": int, "campo": string, "valor": string }
  *     -> { "ok": true, ...Estado } ou { "ok": false, "motivo": string }.
  *
- *   GET /api/exportar_svg -> corpo é o arquivo SVG (Content-Type image/svg+xml).
+ *   GET /api/gantt        -> SVG pronto, só a janela dos últimos ticks
+ *                            (GANTT_JANELA_TELA, em gantt.h).
+ *   GET /api/exportar_svg -> SVG da simulação INTEIRA, para download.
  *
- * HISTÓRICO NO CLIENTE: o backend guarda o histórico completo (requisito
- * 1.5.2), mas a API só expõe o tick ATUAL a cada chamada. Pra desenhar o
- * Gantt (que precisa de TODOS os ticks já percorridos, não só o corrente),
- * este arquivo mantém seu próprio array `historico` e o alimenta a cada
- * avancar/retroceder/carregar -- por isso "executar tudo" é feito aqui como
- * um LOOP de avancar() no cliente (em vez de uma única chamada a
- * /api/executar_tudo): assim cada tick intermediário passa pelo mesmo
- * caminho de código que popula `historico`, e o Gantt fica completo. Isso é
- * uma escolha de design, não uma imposição do contrato acima -- dá pra
- * trocar por /api/executar_tudo + reconstrução via estado_json_historico se
- * preferir (ver estado_json.h).
+ * SEM HISTÓRICO NO CLIENTE (opção A, ver gantt.h): quem desenha o Gantt é o
+ * C, a partir do histórico que ele já guarda (req. 1.5.2). Esta página só
+ * exibe o SVG que chega pronto. Consequências:
+ *   - "executar tudo" é UMA chamada a /api/executar_tudo, e não um laço de
+ *     milhares de /api/avancar;
+ *   - fechar e reabrir o navegador não perde nada: ao abrir, a página pede
+ *     GET /api/estado e redesenha a partir do que o servidor tem.
  *
  * ==========================================================================*/
 
 (function () {
   'use strict';
 
-  /* Estado global do frontend. */
+  /* Estado global do frontend. Só o tick atual: o histórico mora no C. */
   const app = {
-    historico: [],   /* array de Estado, indexado por tick (historico[t].tick === t) */
-    atual: null,      /* Estado do tick corrente (== historico[historico.length-1]) */
+    atual: null,          /* último Estado recebido do servidor */
     tarefaSelecionada: null,
+    versaoGantt: 0,       /* ver atualizarGantt() */
   };
 
   const $ = (sel) => document.querySelector(sel);
@@ -76,7 +79,7 @@
     areaDiagnostico: $('#area-diagnostico'),
     listaErros: $('#lista-erros'),
     listaAvisos: $('#lista-avisos'),
-    svgGantt: $('#svg-gantt'),
+    imgGantt: $('#img-gantt'),
     tabelaCpusBody: $('#tabela-cpus tbody'),
     tabelaTarefasBody: $('#tabela-tarefas tbody'),
     painelInspetor: $('#painel-inspetor'),
@@ -111,15 +114,32 @@
 
   /* ------------------------------ ações da UI ------------------------------ */
 
+  async function aoAbrirPagina() {
+    /* TODO: const resp = await chamarApi('/api/estado'); se
+     * resp && resp.carregado: aplicarNovoEstado(resp) e
+     * definirControlesHabilitados(true). Senão, deixar a tela no estado
+     * inicial (só o seletor de arquivo habilitado).
+     * É isto que faz fechar e reabrir o navegador no meio da simulação
+     * não perder nada (card do kanban "testar fechar e reabrir"). */
+  }
+
   async function aoCarregar() {
     /* TODO:
-     * 1) limpar area-diagnostico (mostrarDiagnostico([], []) ou similar).
-     * 2) const resp = await postJson('/api/carregar', {caminho:
-     *    els.entradaArquivo.value}).
-     * 3) se resp.erro: mostrarDiagnostico(resp.erros||[], resp.avisos||[])
-     *    e parar aqui (não mexer em app.historico/app.atual).
-     * 4) senão: app.historico = [resp]; aplicarNovoEstado(resp);
-     *    definirControlesHabilitados(true). */
+     * 1) limpar area-diagnostico (mostrarDiagnostico([], [])).
+     * 2) const arquivo = els.entradaArquivo.files[0]; se não houver,
+     *    mostrarDiagnostico(['Escolha um arquivo de configuração antes
+     *    de carregar.'], []) e parar.
+     * 3) const resp = await chamarApi('/api/carregar', { method: 'POST',
+     *    body: arquivo }). Passar o próprio File como body faz o navegador
+     *    mandar os bytes como estão no disco -- inclusive do pendrive --
+     *    sem nenhuma leitura em JS. (file.text() também funciona, mas
+     *    decodifica como UTF-8 e já remove o BOM sozinho; aí o tratamento
+     *    de BOM do C nunca seria exercitado pela página.)
+     * 4) se resp.erro: mostrarDiagnostico(resp.erros||[], resp.avisos||[])
+     *    e parar aqui (não mexer em app.atual).
+     * 5) senão: mostrarDiagnostico([], resp.avisos||[]) se o servidor
+     *    mandar avisos junto (ex.: tarefa aperiódica ignorada, req. 4.4),
+     *    aplicarNovoEstado(resp); definirControlesHabilitados(true). */
   }
 
   function mostrarDiagnostico(erros, avisos) {
@@ -133,41 +153,28 @@
 
   async function aoAvancar() {
     /* TODO: const resp = await postJson('/api/avancar'); se
-     * !resp || resp.erro, não fazer nada (ex.: já terminou). Senão:
-     * app.historico.push(resp) e aplicarNovoEstado(resp). */
+     * !resp || resp.erro, não fazer nada (ex.: já terminou). Senão,
+     * aplicarNovoEstado(resp). */
   }
 
   async function aoRetroceder() {
-    /* TODO: se app.historico.length <= 1, não há pra onde voltar --
-     * retornar sem chamar a API. Senão: const resp = await
-     * postJson('/api/retroceder'); se sucesso, app.historico.pop() (o
-     * tick que acabamos de descartar) e aplicarNovoEstado(resp) (resp já
-     * é o estado do tick anterior, devolvido pelo servidor). */
+    /* TODO: const resp = await postJson('/api/retroceder'); se
+     * !resp || resp.erro, não fazer nada (já estava no tick 0). Senão,
+     * aplicarNovoEstado(resp) -- resp já é o estado do tick anterior,
+     * restaurado pelo servidor a partir do histórico dele. */
   }
 
   async function aoExecutarTudo() {
-    /* TODO: ver o comentário no topo do arquivo sobre por que isso é um
-     * LOOP de aoAvancar()-like no cliente, e não uma única chamada a
-     * /api/executar_tudo: precisamos passar por CADA tick intermediário
-     * pra alimentar app.historico e o Gantt ficar completo.
-     *   while (app.atual && !app.atual.terminada) {
-     *     const resp = await postJson('/api/avancar');
-     *     if (!resp || resp.erro) break;
-     *     app.historico.push(resp);
-     *     app.atual = resp;
-     *   }
-     *   aplicarNovoEstado(app.atual);
-     * Cuidado com simulações longas (até MAX_TICKS=5000): redesenhar o
-     * SVG inteiro a cada tick trava a UI. Dá pra só chamar
-     * aplicarNovoEstado a cada N ticks e uma última vez no final --
-     * detalhe de performance, não obrigatório pro funcionamento básico. */
+    /* TODO: const resp = await postJson('/api/executar_tudo'); se
+     * sucesso, aplicarNovoEstado(resp). Uma chamada só: os ticks
+     * intermediários ficam no histórico do C, e o Gantt vem de lá. */
   }
 
   function aoExportarSvg() {
-    /* TODO: basta abrir '/api/exportar_svg' numa nova aba/janela (ex.
-     * window.open('/api/exportar_svg', '_blank')) -- o servidor já
-     * devolve o arquivo com o Content-Type certo, o navegador cuida do
-     * download/exibição. */
+    /* TODO: window.location.href = '/api/exportar_svg'. Como o servidor
+     * responde com Content-Disposition: attachment, o navegador baixa o
+     * arquivo sem sair da página. É o SVG da simulação INTEIRA (req. 2.4),
+     * diferente do da tela, que mostra só a janela dos últimos ticks. */
   }
 
   /* ------------------------- aplicar estado recebido ------------------------ */
@@ -179,10 +186,10 @@
      *     #info-cpus/#info-tick/#info-estado-sim, este último tipo
      *     "concluída" vs "em execução") e #texto-ultimo-evento.
      *   - atualizarTabelaCpus(estado) e atualizarTabelaTarefas(estado).
-     *   - redesenharGantt().
+     *   - atualizarGantt().
      *   - habilitar/desabilitar botões: retroceder só faz sentido se
-     *     app.historico.length > 1; avançar/executar-tudo só fazem
-     *     sentido se !estado.terminada.
+     *     estado.tick > 0; avançar/executar-tudo só fazem sentido se
+     *     !estado.terminada.
      * Se o painel do inspetor estiver aberto (app.tarefaSelecionada !=
      * null) pra uma tarefa que ainda existe no novo estado, considere
      * também atualizar o que está mostrado lá. */
@@ -190,79 +197,34 @@
 
   function definirControlesHabilitados(ligado) {
     /* TODO: ligar/desligar btnAvancar/btnExecutarTudo/btnExportarSvg
-     * conforme 'ligado'; btnRetroceder começa sempre desabilitado (só
-     * liga depois do primeiro avançar, quando historico.length > 1). */
+     * conforme 'ligado'; btnRetroceder começa desabilitado e é
+     * aplicarNovoEstado quem liga, quando estado.tick > 0. */
   }
 
   function atualizarTabelaCpus(estado) {
     /* TODO: reconstruir #tabela-cpus tbody (limpar com innerHTML = '' e
      * recriar): uma <tr> por CPU em estado.cpus, com <td> pra
-     * id/tarefa (mostrar "--" se tarefa === -1)/ticks_desligada. */
+     * id/tarefa (mostrar "desligada" se tarefa === -1)/ticks_desligada. */
   }
 
   function atualizarTabelaTarefas(estado) {
     /* TODO: reconstruir #tabela-tarefas tbody: uma <tr> clicável por
      * tarefa em estado.tarefas (id/estado/exec_restante/ativacoes/
-     * prazo), com um listener de click que chama abrirInspetor(t.id). */
+     * prazo), com um listener de click que chama abrirInspetor(t.id).
+     * Com o arquivo do professor (~190 tarefas) a tabela fica longa:
+     * normal, o painel lateral rola. */
   }
 
   /* --------------------------------- gantt --------------------------------- */
 
-  const CEL_W = 14, LIN_H = 20, MARG_E = 34, MARG_T = 10;
-
-  function redesenharGantt() {
-    /* TODO: espelha a lógica de gantt_svg() em gantt.c -- mesmas
-     * convenções do requisito 2.1/2.5 (EXECUTANDO = cor da tarefa +
-     * número da CPU dentro da célula; PRONTA = sem preenchimento, só
-     * contorno; SUSPENSA = preto com padrão hachurado; INATIVA/
-     * CONCLUIDA = nada desenhado; eixo Y com o MENOR id embaixo), mas
-     * lendo de app.historico (client-side) em vez de um array Estado[]
-     * do C. Testado e validado visualmente antes deste esqueleto, com
-     * duas tarefas RM: os retângulos coloridos, os marcadores ▲/●/✗/★ e
-     * a ordem das linhas no eixo Y saíram corretos.
+  function atualizarGantt() {
+    /* TODO: els.imgGantt.src = '/api/gantt?v=' + (++app.versaoGantt);
      *
-     * 1) svg.innerHTML = '' pra limpar o desenho anterior; se
-     *    app.historico estiver vazio, retornar.
-     * 2) pegar os ids das tarefas a partir de app.historico[0].tarefas,
-     *    ordenados CRESCENTE (a lista de tarefas não muda depois de
-     *    carregada) -- índice 0 = menor id = linha mais embaixo no
-     *    desenho.
-     * 3) calcular largura/altura totais a partir de
-     *    MARG_E/MARG_T/CEL_W/LIN_H, número de ticks e número de
-     *    tarefas; aplicar em width/height/viewBox do <svg>.
-     * 4) para cada tick t de app.historico e cada tarefa desse
-     *    snapshot: achar a linha (posição Y) pelo id, calcular x = MARG_E
-     *    + t*CEL_W, criar um <rect> via
-     *    document.createElementNS('http://www.w3.org/2000/svg', 'rect')
-     *    com fill/stroke conforme o estado (ver convenções acima). Se
-     *    EXECUTANDO, um <text> com o número da CPU centralizado na
-     *    célula.
-     * 5) marcador de evento: comparar a tarefa nesse tick com a mesma
-     *    tarefa no tick anterior (historicoTarefaPorId, abaixo) e
-     *    desenhar ▲ (chegada) / ● (término) / ✗ (prazo perdido) / ★
-     *    (sorteio) por cima da célula quando aplicável -- mesma
-     *    prioridade documentada em marca_em() de gantt.c.
-     * 6) rótulos: id de cada tarefa na margem esquerda (eixo Y), e
-     *    talvez o número do tick a cada N células no eixo X (evita
-     *    poluir visualmente em simulações longas). */
-  }
-
-  function historicoTarefaPorId(snap, id) {
-    /* TODO: se snap for null/undefined, devolver null. Senão,
-     * snap.tarefas.find(t => t.id === id) || null. */
-    return null;
-  }
-
-  function marcaEm(antes, agora) {
-    /* TODO: mesma prioridade documentada em gantt.c (marca_em): prazo
-     * perdido > término > chegada > sorteio.
-     *   - agora.perdeu_prazo && (!antes || !antes.perdeu_prazo) -> '✗'
-     *   - antes existia, não estava INATIVA/CONCLUIDA, e agora está
-     *     INATIVA ou CONCLUIDA -> '●'
-     *   - antes existia, estava INATIVA, e agora não está mais -> '▲'
-     *   - agora.sorteada -> '★'
-     *   - senão -> '' (nenhum marcador) */
-    return '';
+     * O desenho todo é do C (gantt.c); aqui só se pede a imagem de novo.
+     * O '?v=' com um contador que sempre sobe existe por causa do cache:
+     * se a URL fosse sempre '/api/gantt', o navegador reaproveitaria a
+     * imagem anterior e o gráfico não mudaria. Contador, e não o número do
+     * tick: editar uma tarefa muda o gráfico SEM mudar o tick. */
   }
 
   /* -------------------------------- inspetor -------------------------------- */
@@ -282,10 +244,8 @@
     /* TODO: ev.preventDefault(); montar o corpo {id:
      * app.tarefaSelecionada, campo: els.editarCampo.value, valor:
      * els.editarValor.value} e const resp = await
-     * postJson('/api/editar', corpo). Se resp.ok: sobrescrever
-     * app.historico[app.historico.length-1] = resp (editar não avança
-     * nem retrocede o tick, só corrige o snapshot atual -- não é um novo
-     * tick), aplicarNovoEstado(resp), fecharInspetor(). Se !resp.ok:
+     * postJson('/api/editar', corpo). Se resp.ok: aplicarNovoEstado(resp)
+     * (que já pede o Gantt de novo) e fecharInspetor(). Se !resp.ok:
      * mostrar resp.motivo em #inspetor-motivo, SEM fechar o painel (pra
      * o usuário poder corrigir e tentar de novo). */
   }
@@ -299,4 +259,5 @@
   els.btnExportarSvg.addEventListener('click', aoExportarSvg);
   els.formEditar.addEventListener('submit', aoSubmeterEdicao);
   els.btnFecharInspetor.addEventListener('click', fecharInspetor);
+  aoAbrirPagina();
 })();

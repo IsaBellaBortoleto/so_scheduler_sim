@@ -9,7 +9,8 @@
  * Regras exigidas pelo enunciado e onde elas estão tratadas neste arquivo:
  *   3.3.2 strings case-insensitive .......... str_igual_ci / str_maiuscula
  *   3.3.3 ';' final é opcional ............... split_campos ignora campo vazio final
- *   3.3.4 qualquer caminho de arquivo ........ o caminho é parâmetro, não constante
+ *   3.3.4 qualquer lugar, inclusive pendrive . o C recebe o CONTEÚDO, escolhido
+ *                                              pelo seletor de arquivo da página
  *   3.3.6 espaços e linhas em branco não são erro ... trim + salto de linha vazia
  *   3.3.6 erros claros com o motivo .......... diag_erro("linha %d: ...")
  * ==========================================================================*/
@@ -144,21 +145,32 @@ static int campo_cor(const char *txt, TCB *t)
 
 /* ----------------------------- carga principal --------------------------- */
 
-#define MAX_LINHA 1024
-
-int config_carregar(const char *caminho, Estado *e, Diagnostico *d)
+int config_carregar_texto(const char *conteudo, Estado *e, Diagnostico *d)
 {
     /* TODO, nessa ordem:
-     * 1- fopen(caminho, "r"); se falhar, diag_erro com o motivo e
-     *    retornar 0 (não dá pra continuar sem arquivo).
+     * 1- se conteudo for NULL ou "", diag_erro("arquivo vazio...") e
+     *    retornar 0.
+     *    BOM: se os 3 primeiros bytes forem "\xEF\xBB\xBF", pular os 3.
+     *    Por quê: alguns editores salvam .txt como "UTF-8 com BOM", e o
+     *    arquivo do professor vem de outra máquina. Sem esse pulo, o
+     *    primeiro campo vira "\xEF\xBB\xBFRM" e o erro sai como
+     *    'algoritmo "RM" não existe' -- com o RM aparecendo na tela, porque
+     *    os 3 bytes são invisíveis. Testado no gabarito: falha exatamente
+     *    assim. Comparar com memcmp, não com str_igual_ci.
      * 2) preencher *e com os valores PADRÃO (requisito 3.2): algoritmo =
      *    PADRAO_ALGORITMO, quantum = PADRAO_QUANTUM, ncpus = PADRAO_CPUS,
      *    tarefas/cpus = NULL, ntarefas = 0. Esses padrões são
      *    sobrescritos pelo que vier no arquivo, campo a campo.
-     * 3) ler linha a linha com fgets(buf, MAX_LINHA, f), contando o
-     *    número da linha (pras mensagens de erro).
+     * 3) 'conteudo' é const e o split precisa escrever '\0' no meio do
+     *    texto: fazer UMA cópia (malloc(strlen+1) + memcpy) e percorrer a
+     *    cópia linha a linha com strchr(p, '\n'), trocando cada '\n' por
+     *    '\0'. Contar o número da linha (pras mensagens de erro).
+     *    Sem tamanho máximo de linha: diferente do fgets, aqui uma linha
+     *    longa (lista_eventos grande) não é cortada no meio.
      * 4) trim() a linha inteira; se ficou vazia, `continue` (3.3.6: linha
-     *    em branco não é erro).
+     *    em branco não é erro). O trim também remove o '\r' que sobra no
+     *    fim de cada linha de um arquivo do Windows (CRLF), porque
+     *    isspace('\r') é verdadeiro.
      * 5) split_campos() e, IMPORTANTE, trim() em CADA campo resultante
      *    (ver o comentário do bug em trim(), acima).
      * 6) primeira linha não-vazia = cabeçalho: campos[0]=algoritmo
@@ -178,9 +190,11 @@ int config_carregar(const char *caminho, Estado *e, Diagnostico *d)
      *    de guardar no array.
      * 10) guardar cada tarefa válida em e->tarefas, crescendo o array
      *     dinamicamente (realloc dobrando a capacidade) -- não há limite
-     *     de tarefas (requisito 3.3.1).
-     * 11) depois do laço: fclose(f). Se nenhuma linha de cabeçalho foi
-     *     lida (arquivo vazio), diag_erro.
+     *     de tarefas (requisito 3.3.1). O arquivo de teste do professor
+     *     tem ~4 KB, o que cabe ~190 tarefas: um vetor de tamanho fixo
+     *     "generoso" (100, 128...) estouraria na demonstração.
+     * 11) depois do laço: free() na cópia do passo 3. Se nenhuma linha
+     *     de cabeçalho foi lida (só linhas em branco), diag_erro.
      * 12) alocar e->cpus com e->ncpus entradas (id=i, tarefa=-1,
      *     ticks_desligada=0 cada uma).
      * 13) e->tick = 0.
@@ -188,7 +202,7 @@ int config_carregar(const char *caminho, Estado *e, Diagnostico *d)
      *     linhas tenham dado erro -- é melhor reportar todos os erros de
      *     uma vez do que parar no primeiro, por isso os `continue` em vez
      *     de `return` nos passos acima). */
-    (void)caminho;
+    (void)conteudo;
     (void)e;
     (void)d;
     return 0;

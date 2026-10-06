@@ -112,8 +112,10 @@ $(BUILD_DIR)/servidor.o: $(RECURSOS_H)
 
 # `mkdir` sem flags funciona tanto no sh quanto no cmd.exe. Como build/ e
 # order-only, esta regra roda uma unica vez, quando a pasta ainda nao existe.
+# O `-` ignora o erro de "pasta ja existe": acontece com `make -B`, que
+# forca todos os alvos -- inclusive este.
 $(BUILD_DIR):
-	mkdir $(BUILD_DIR)
+	-mkdir $(BUILD_DIR)
 
 # Executavel da entrega. -static embute no binario tudo o que viria de DLL/.so
 # (libgcc, winpthread no MinGW, glibc no Linux). A ws2_32 continua dinamica,

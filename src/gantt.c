@@ -1,11 +1,15 @@
 /* ============================================================================
- * gantt.c — Exportação do gráfico de Gantt final (requisito 2.4)
+ * gantt.c — O ÚNICO lugar onde o gráfico de Gantt é desenhado (req. 2)
  * ----------------------------------------------------------------------------
- * A visualização "ao vivo" (requisitos 2.1-2.3) virou a página web (ver
- * estado_json.h/servidor.h) -- por isso as funções de desenho no terminal
- * (gantt_preparar_terminal/gantt_terminal) saíram do gantt.h e não têm mais
- * lugar aqui. O que sobra é só a exportação do SVG final, que continua
- * sendo tarefa do C (não pode ser print de tela da página).
+ * Decisão de projeto (opção A, ver gantt.h): a página web NÃO desenha. Ela
+ * pede o SVG ao servidor e exibe. Esta mesma função gera:
+ *   - a tela ao vivo (req. 2.3), só com os últimos GANTT_JANELA_TELA ticks;
+ *   - o arquivo exportado (req. 2.4), com a simulação inteira.
+ * Assim cada regra de desenho abaixo existe uma vez só, e a imagem exportada
+ * é idêntica à da tela -- e, gerada no C, indiscutivelmente não é print.
+ *
+ * A legenda também é desenhada AQUI, dentro do SVG (e não no HTML): assim
+ * ela aparece igual na tela e no arquivo exportado.
  *
  * CONVENÇÕES DE DESENHO, todas ditadas pelo requisito 2.1 e 2.5:
  *
@@ -73,7 +77,7 @@ static void ordem_por_id(const Estado *e, int *ordem)
 }
 
 /* ==========================================================================
- *  EXPORTAÇÃO — ARQUIVO SVG (requisito 2.4)
+ *  DESENHO — SVG da tela ao vivo e do arquivo exportado
  * ========================================================================*/
 
 #define CEL_W  14   /* largura de 1 tick, em pixels                          */
@@ -81,31 +85,43 @@ static void ordem_por_id(const Estado *e, int *ordem)
 #define MARG_E 90   /* margem esquerda, onde vão os rótulos das linhas       */
 #define MARG_T 50   /* margem superior, para o título                        */
 
-int gantt_svg(const Simulacao *s, const char *caminho)
+int gantt_svg(const Simulacao *s, FILE *saida, int tick_ini, int tick_fim)
 {
     /* TODO:
-     * 1) fopen(caminho, "w"); se falhar, devolver 0.
-     * 2) calcular a largura total (MARG_E + n_hist * CEL_W) e a altura
-     *    (MARG_T + ntarefas * LIN_H) do desenho.
-     * 3) escrever o cabeçalho SVG (<svg width=... height=... ...>) e um
-     *    <rect> de fundo branco.
-     * 4) ordem_por_id() pra saber em que linha (Y) cada tarefa vai.
-     * 5) para cada tick t em 0..n_hist-1 e cada tarefa i: olhar
-     *    historico[t].tarefas[i].estado e desenhar um <rect> na
-     *    posição (MARG_E + t*CEL_W, linha_da_tarefa*LIN_H) do jeito
-     *    certo pra cada estado (ver as convenções no comentário do topo
-     *    do arquivo -- cor da tarefa se EXECUTANDO, sem preenchimento se
-     *    PRONTA, preto+hachurado se SUSPENSA, nada se INATIVA/CONCLUIDA).
-     *    Se EXECUTANDO, escrever também o número da CPU dentro da célula
-     *    (<text>).
-     * 6) chamar marca_em(s, t, i) e desenhar o ícone/marcador
-     *    correspondente por cima da célula quando != MARCA_NENHUMA.
-     * 7) escrever os rótulos das linhas (id da tarefa) na margem
-     *    esquerda, e alguma marcação de tempo no eixo X.
-     * 8) escrever a legenda (requisito 2.1: obrigatória) como elementos
-     *    SVG à parte (retângulos + texto explicando cada convenção).
-     * 9) fechar com </svg> e fclose(f). Devolver 1. */
+     * 1) validar: n_hist > 0 e 0 <= tick_ini <= tick_fim < n_hist; senão
+     *    devolver 0. NÃO abrir nem fechar 'saida' -- quem chamou é dono
+     *    dele (ver gantt.h). Escrever tudo com fprintf(saida, ...).
+     * 2) n_ticks = tick_fim - tick_ini + 1. Largura total = MARG_E +
+     *    n_ticks * CEL_W; altura = MARG_T + (ncpus + ntarefas) * LIN_H +
+     *    espaço da legenda. Com ~190 tarefas (arquivo do professor) a
+     *    altura passa de 4000 px -- normal, a página tem rolagem.
+     * 3) cabeçalho SVG (<svg width=... height=... ...>) e um <rect> de
+     *    fundo branco.
+     * 4) faixa das CPUs, ACIMA das tarefas (requisito 1.2: o tempo em que
+     *    cada processador fica desligado precisa aparecer no gráfico):
+     *    para cada CPU c e tick t, historico[t].cpus[c].tarefa == -1 ->
+     *    célula hachurada cinza; senão -> célula na cor da tarefa que
+     *    ocupa a CPU.
+     * 5) ordem_por_id() pra saber em que linha (Y) cada tarefa vai.
+     * 6) para cada tick t em tick_ini..tick_fim e cada tarefa i: x =
+     *    MARG_E + (t - tick_ini) * CEL_W -- subtrair tick_ini, senão a
+     *    janela da tela ao vivo começa fora do desenho. Desenhar o <rect>
+     *    conforme o estado (convenções no topo do arquivo). Se
+     *    EXECUTANDO, o número da CPU dentro da célula (<text>).
+     * 7) marca_em(s, t, i) e o marcador por cima da célula quando !=
+     *    MARCA_NENHUMA. ATENÇÃO na borda esquerda da janela: em t ==
+     *    tick_ini > 0, o tick anterior existe no histórico e marca_em
+     *    deve compará-lo normalmente. Se tratar a borda como "não há
+     *    antes", toda tarefa ativa ganha um ▲ falso de chegada ali.
+     * 8) rótulos: id da tarefa e "CPU n" na margem esquerda; no eixo X,
+     *    o número REAL do tick (t, não t - tick_ini), a cada 5.
+     * 9) legenda (obrigatória): executando, pronta, suspensa, CPU
+     *    desligada e os quatro marcadores. Fica dentro do SVG pra
+     *    aparecer igual na tela e no arquivo exportado.
+     * 10) fechar com </svg>. Devolver 1. */
     (void)s;
-    (void)caminho;
+    (void)saida;
+    (void)tick_ini;
+    (void)tick_fim;
     return 0;
 }

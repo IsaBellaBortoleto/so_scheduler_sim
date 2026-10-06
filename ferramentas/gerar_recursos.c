@@ -15,6 +15,22 @@
  * Roda uma vez por build (chamado pelo Makefile ANTES de compilar
  * servidor.c), gera build/recursos_web.h, e esse .h é #include'd
  * normalmente pelo resto do projeto. Não faz parte do binário final.
+ *
+ * FORMATO DO .h GERADO (o que o servidor.c vai encontrar):
+ *
+ *   typedef struct { caminho, tipo_mime, dados, tamanho } RecursoWeb;
+ *   static const unsigned char RECURSO_APP_JS[] = { 0x2f,0x2a, ... };
+ *   static const RecursoWeb RECURSOS_WEB[] = {
+ *       { "/app.js", "application/javascript; charset=utf-8",
+ *         RECURSO_APP_JS, 9431UL },
+ *       ...
+ *   };
+ *   static const int RECURSOS_WEB_QTDE = 3;
+ *
+ * Para responder a um GET, o servidor percorre RECURSOS_WEB comparando o
+ * campo 'caminho' com o caminho pedido e envia 'tamanho' bytes de 'dados'.
+ * O tamanho vai explicito na tabela porque os dados sao bytes crus, nao uma
+ * string: nao ha '\0' no fim, e strlen() daria o valor errado.
  * ==========================================================================*/
 #include <stdio.h>
 #include <stdlib.h>
@@ -25,82 +41,88 @@
  * MAIUSCULAS (ex. "estilo.css" -> "ESTILO_CSS"). */
 static void identificador_de(const char *nome_arquivo, char *out, size_t out_tam)
 {
-    /* TODO: percorrer nome_arquivo copiando pra 'out' (respeitando
-     * out_tam - 1, sempre deixando espaço pro '\0' final): cada caractere
-     * alfanumérico vira toupper(c); qualquer outro caractere (ponto,
-     * hífen, etc.) vira '_'. Terminar com '\0'. */
-    (void)nome_arquivo;
-    (void)out_tam;
-    if (out_tam > 0) out[0] = '\0';
+    size_t i = 0;
+    if (out_tam == 0) return;
+
+    /* i + 1 < out_tam: para sempre sobrar uma posicao para o '\0'. */
+    for (; nome_arquivo[i] != '\0' && i + 1 < out_tam; i++) {
+        /* O cast para unsigned char e obrigatorio: isalnum/toupper tem
+         * comportamento indefinido com valores negativos, e um char com
+         * acento e negativo quando 'char' tem sinal (caso do gcc no x86). */
+        unsigned char c = (unsigned char)nome_arquivo[i];
+        out[i] = isalnum(c) ? (char)toupper(c) : '_';
+    }
+    out[i] = '\0';
 }
 
-/* Descobre o tipo MIME a partir da extensao do arquivo. */
+/* Descobre o tipo MIME a partir da extensao do arquivo. O navegador usa esse
+ * valor (cabecalho Content-Type) para decidir o que fazer com a resposta:
+ * com o tipo errado, ele se recusa a aplicar o CSS e a executar o JS. */
 static const char *mime_de(const char *nome_arquivo)
 {
-    /* TODO: strrchr(nome_arquivo, '.') pra achar a extensão; se não achar,
-     * "application/octet-stream". Comparar (strcmp) contra ".html",
-     * ".css", ".js", ".svg" e devolver o MIME correspondente (ver tabela
-     * abaixo); qualquer outra extensão cai no genérico.
-     *   .html -> "text/html; charset=utf-8"
-     *   .css  -> "text/css; charset=utf-8"
-     *   .js   -> "application/javascript; charset=utf-8"
-     *   .svg  -> "image/svg+xml"
-     */
-    (void)nome_arquivo;
-    return "application/octet-stream";
+    const char *ext = strrchr(nome_arquivo, '.');   /* ultimo ponto do nome */
+
+    if (ext != NULL) {
+        if (strcmp(ext, ".html") == 0) return "text/html; charset=utf-8";
+        if (strcmp(ext, ".css")  == 0) return "text/css; charset=utf-8";
+        if (strcmp(ext, ".js")   == 0) return "application/javascript; charset=utf-8";
+        if (strcmp(ext, ".svg")  == 0) return "image/svg+xml";
+    }
+    return "application/octet-stream";   /* "bytes quaisquer" */
 }
 
 /* Extrai só o nome do arquivo de um caminho (ignora diretorios). */
 static const char *nome_base(const char *caminho)
 {
-    /* TODO: strrchr(caminho, '/'); se achou, devolver barra+1; senão
-     * devolver o próprio 'caminho' (já era só um nome, sem diretório). */
-    return caminho;
-}
+    const char *barra = strrchr(caminho, '/');
+    const char *contra = strrchr(caminho, '\\');   /* caminho do Windows */
 
-/* strdup não é C11 padrão (é POSIX) -- com -std=c11 estrito o compilador
- * não declara o protótipo e o retorno vira int truncado, causando
- * comportamento indefinido (foi exatamente isso que gerou um SEGFAULT
- * aqui ao testar a versão completa deste arquivo -- os warnings eram
- * "implicit declaration of function 'strdup'" e "assignment to 'char *'
- * from 'int' makes pointer from integer without a cast"). Uma cópia
- * própria evita depender de uma extensão POSIX não declarada. */
-static char *duplicar_string(const char *s)
-{
-    /* TODO: tam = strlen(s) + 1; malloc(tam); se não for NULL,
-     * memcpy(copia, s, tam). Devolver a cópia (ou NULL se malloc falhou). */
-    (void)s;
-    return NULL;
+    if (contra != NULL && (barra == NULL || contra > barra)) barra = contra;
+    return barra != NULL ? barra + 1 : caminho;
 }
 
 /* Le o arquivo inteiro em memoria. Devolve o tamanho em *tam, ou NULL em erro. */
 static unsigned char *ler_arquivo(const char *caminho, long *tam)
 {
-    /* TODO:
-     * 1) fopen(caminho, "rb"); se falhar, devolver NULL.
-     * 2) fseek(f, 0, SEEK_END) + ftell(f) pra descobrir o tamanho;
-     *    checar erro (ftell < 0) e fechar o arquivo se der problema.
-     * 3) rewind(f).
-     * 4) malloc(tamanho > 0 ? tamanho : 1) (evita malloc(0) em arquivo
-     *    vazio, que tem comportamento implementação-definido).
-     * 5) fread(buf, 1, tamanho, f); conferir que leu exatamente
-     *    'tamanho' bytes, senão free+fclose e devolver NULL.
-     * 6) fclose(f), *tam = tamanho, devolver buf. */
-    (void)caminho;
-    (void)tam;
-    return NULL;
+    /* "rb" (binario) e nao "r": em modo texto o Windows converte "\r\n" em
+     * "\n" durante a leitura. Os bytes embutidos deixariam de ser os do
+     * arquivo, e o total lido nao bateria com o tamanho medido pelo ftell. */
+    FILE *f = fopen(caminho, "rb");
+    unsigned char *buf;
+    long tamanho;
+
+    if (f == NULL) return NULL;
+
+    if (fseek(f, 0, SEEK_END) != 0 || (tamanho = ftell(f)) < 0) {
+        fclose(f);
+        return NULL;
+    }
+    rewind(f);
+
+    /* malloc(0) pode devolver NULL sem ser erro; pedir ao menos 1 byte
+     * evita confundir "arquivo vazio" com "faltou memoria". */
+    buf = malloc(tamanho > 0 ? (size_t)tamanho : 1);
+    if (buf == NULL || fread(buf, 1, (size_t)tamanho, f) != (size_t)tamanho) {
+        free(buf);
+        fclose(f);
+        return NULL;
+    }
+
+    fclose(f);
+    *tam = tamanho;
+    return buf;
 }
 
 /* Escreve os bytes de 'dados' como uma lista "0x1a,0x2b,..." em C,
  * quebrando linha a cada 16 valores (só por legibilidade do .h gerado). */
 static void escrever_bytes(FILE *saida, const unsigned char *dados, long tam)
 {
-    /* TODO: for (i = 0; i < tam; i++) { a cada 16 valores (i % 16 == 0)
-     * escrever "\n    "; depois fprintf(saida, "0x%02x,", dados[i]); }
-     * terminar com um '\n'. */
-    (void)saida;
-    (void)dados;
-    (void)tam;
+    long i;
+    for (i = 0; i < tam; i++) {
+        if (i % 16 == 0) fprintf(saida, "\n    ");
+        fprintf(saida, "0x%02x,", dados[i]);
+    }
+    fprintf(saida, "\n");
 }
 
 int main(int argc, char *argv[])
@@ -112,62 +134,97 @@ int main(int argc, char *argv[])
 
     const char *caminho_saida = argv[1];
     int n_arquivos = argc - 2;
+    long total = 0;
+    char id[128];
+    int i;
+
+    /* Os tamanhos sao descobertos na 1a passada (ao ler cada arquivo) e
+     * usados de novo na 2a (ao escrever a tabela). */
+    long *tamanhos = malloc((size_t)n_arquivos * sizeof *tamanhos);
+    if (tamanhos == NULL) {
+        fprintf(stderr, "erro: memoria insuficiente\n");
+        return 1;
+    }
 
     FILE *saida = fopen(caminho_saida, "w");
     if (saida == NULL) {
         fprintf(stderr, "erro: não consegui abrir '%s' para escrita\n", caminho_saida);
+        free(tamanhos);
         return 1;
     }
 
-    /* TODO (cabeçalho do .h gerado):
-     * 1) escrever um comentário "gerado automaticamente, não editar" e
-     *    listar os arquivos de origem (argv[2..argc-1]), pra rastrear de
-     *    onde veio o conteúdo.
-     * 2) escrever o guard #ifndef/#define RECURSOS_WEB_H.
-     * 3) escrever a definição do struct RecursoWeb, com os campos:
-     *      const char *caminho;      // ex. "/" ou "/app.js"
-     *      const char *tipo_mime;
-     *      const unsigned char *dados;
-     *      unsigned long tamanho;
-     */
+    /* ---------------------------- cabeçalho do .h -------------------------- */
+    fprintf(saida, "/* GERADO AUTOMATICAMENTE por ferramentas/gerar_recursos.c.\n"
+                   " * NAO EDITE: qualquer alteracao some no proximo build.\n"
+                   " * Para mudar a pagina, edite os arquivos de origem:\n");
+    for (i = 0; i < n_arquivos; i++)
+        fprintf(saida, " *   %s\n", argv[2 + i]);
+    fprintf(saida, " */\n"
+                   "#ifndef RECURSOS_WEB_H\n"
+                   "#define RECURSOS_WEB_H\n\n"
+                   "typedef struct {\n"
+                   "    const char *caminho;          /* ex. \"/\" ou \"/app.js\" */\n"
+                   "    const char *tipo_mime;        /* valor do Content-Type */\n"
+                   "    const unsigned char *dados;   /* bytes crus, SEM '\\0' no fim */\n"
+                   "    unsigned long tamanho;        /* quantos bytes ha em dados */\n"
+                   "} RecursoWeb;\n\n");
 
-    /* TODO (um vetor de bytes por arquivo de entrada):
-     * Alocar (malloc) três arrays paralelos de tamanho n_arquivos:
-     *   ids[i]          -> identificador C do recurso i (ex. "APP_JS")
-     *   caminhos_web[i] -> caminho HTTP do recurso i (ex. "/app.js")
-     *   mimes[i]        -> tipo MIME do recurso i
-     * Checar falha de malloc antes de continuar.
-     *
-     * Para cada i em 0..n_arquivos-1:
-     *   a) ler_arquivo(argv[2+i], &tamanho); se der NULL, erro e sair
-     *      (lembrar de fclose(saida) antes do 'return 1').
-     *   b) identificador_de(nome_base(argv[2+i]), id, sizeof(id));
-     *      ids[i] = duplicar_string(id).
-     *   c) caminho web: se nome_base(...) == "index.html", vira "/";
-     *      senão vira "/" + nome_base(...) (snprintf). caminhos_web[i] =
-     *      duplicar_string(disso).
-     *   d) mimes[i] = mime_de(nome_base(...)).
-     *   e) escrever no .h: "static const unsigned char RECURSO_<id>[] =
-     *      {" + escrever_bytes(...) + "};" e "static const unsigned long
-     *      RECURSO_<id>_LEN = <tamanho>UL;".
-     *   f) free(dados) (já foi copiado pro arquivo de saída, não precisa
-     *      mais em memória).
-     */
+    /* ------------------ 1a passada: um vetor de bytes por arquivo ---------- */
+    for (i = 0; i < n_arquivos; i++) {
+        const char *nome = nome_base(argv[2 + i]);
+        unsigned char *dados = ler_arquivo(argv[2 + i], &tamanhos[i]);
 
-    /* TODO (tabela final RECURSOS_WEB[]):
-     * escrever "static const RecursoWeb RECURSOS_WEB[] = {" e, para cada
-     * i, uma linha "{ caminhos_web[i], mimes[i], RECURSO_<id>,
-     * RECURSO_<id>_LEN }," -- depois "};" e "static const int
-     * RECURSOS_WEB_QTDE = n_arquivos;".
-     * Fechar com a linha de guard do include (#endif) e um comentário
-     * identificando RECURSOS_WEB_H, igual ao #ifndef do topo.
-     * fclose(saida).
-     * Liberar ids[i]/caminhos_web[i] de cada i, depois os três arrays.
-     * fprintf(stderr, "gerado: %s (%d recurso(s))\n", ...) pra feedback
-     * no terminal durante o build.
-     * return 0.
-     */
-    (void)n_arquivos;
-    fclose(saida);
+        if (dados == NULL) {
+            fprintf(stderr, "erro: não consegui ler '%s'\n", argv[2 + i]);
+            fclose(saida);
+            /* Apagar a saida pela metade: se ela ficasse no disco, o make a
+             * veria como "atualizada" e o proximo build falharia longe
+             * daqui, ao compilar o servidor, com um erro bem mais confuso. */
+            remove(caminho_saida);
+            free(tamanhos);
+            return 1;
+        }
+
+        identificador_de(nome, id, sizeof id);
+        fprintf(saida, "/* %s -- %ld bytes */\n"
+                       "static const unsigned char RECURSO_%s[] = {",
+                nome, tamanhos[i], id);
+        if (tamanhos[i] == 0)
+            fprintf(saida, " 0 ");   /* C nao permite vetor vazio: "{}" e erro */
+        else
+            escrever_bytes(saida, dados, tamanhos[i]);
+        fprintf(saida, "};\n\n");
+
+        total += tamanhos[i];
+        free(dados);   /* ja esta no arquivo de saida; nao precisa mais */
+    }
+
+    /* ---------------------- 2a passada: a tabela final --------------------- */
+    fprintf(saida, "static const RecursoWeb RECURSOS_WEB[] = {\n");
+    for (i = 0; i < n_arquivos; i++) {
+        const char *nome = nome_base(argv[2 + i]);
+        /* index.html responde pela raiz do site ("/"); os demais, por "/nome". */
+        int eh_indice = (strcmp(nome, "index.html") == 0);
+
+        identificador_de(nome, id, sizeof id);
+        fprintf(saida, "    { \"/%s\", \"%s\", RECURSO_%s, %ldUL },\n",
+                eh_indice ? "" : nome, mime_de(nome), id, tamanhos[i]);
+    }
+    fprintf(saida, "};\n\n"
+                   "static const int RECURSOS_WEB_QTDE = %d;\n\n"
+                   "#endif /* RECURSOS_WEB_H */\n", n_arquivos);
+
+    free(tamanhos);
+
+    /* O fclose descarrega o que ainda estava em buffer; e nele que um erro
+     * de escrita (disco cheio, por exemplo) finalmente aparece. */
+    if (fclose(saida) != 0) {
+        fprintf(stderr, "erro: falha ao gravar '%s'\n", caminho_saida);
+        remove(caminho_saida);
+        return 1;
+    }
+
+    fprintf(stderr, "gerado: %s (%d recurso(s), %ld bytes)\n",
+            caminho_saida, n_arquivos, total);
     return 0;
 }

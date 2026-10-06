@@ -3,10 +3,34 @@
 
 #include "kernel.h"
 
-//SUPONDO INTERFACE EM HTTP
-
+/* Servidor HTTP embutido (so sockets: Winsock no Windows, BSD sockets no
+ * Linux/Mac -- nenhuma biblioteca externa) que expoe a Simulacao para a
+ * pagina web. O servidor nao guarda estado proprio: cada requisicao le ou
+ * comanda a MESMA struct Simulacao que o main.c mantem viva.
+ *
+ * ROTAS (o formato dos JSON esta no topo de web/app.js):
+ *
+ *   GET  /, /app.js, /estilo.css   pagina, servida de recursos_web.h
+ *   GET  /api/estado               estado atual em JSON (estado_json.h);
+ *                                  a pagina chama ao abrir, entao fechar e
+ *                                  reabrir o navegador nao perde nada
+ *   POST /api/carregar             CORPO = bytes crus do arquivo de config,
+ *                                  como vieram do seletor de arquivo (pode
+ *                                  ter BOM e CRLF). Ler Content-Length
+ *                                  bytes, terminar com '\0' e passar para
+ *                                  config_carregar_texto (config.h).
+ *   POST /api/avancar, /api/retroceder, /api/executar_tudo, /api/editar
+ *   GET  /api/gantt                SVG da JANELA atual (gantt.h,
+ *                                  GANTT_JANELA_TELA ticks)
+ *   GET  /api/exportar_svg         SVG da simulacao INTEIRA, com cabecalho
+ *                                  Content-Disposition: attachment para o
+ *                                  navegador baixar (req. 2.4)
+ *
+ * 'sim' precisa continuar valido durante toda a vida do servidor. Bloqueia a
+ * thread chamadora rodando o laco de accept ate o processo ser encerrado.
+ * Retorna 0 se nao conseguiu abrir a porta (ex. porta ja em uso), 1 em
+ * encerramento normal. */
 int servidor_iniciar(Simulacao *sim, int porta);
-
 
 void servidor_abrir_navegador(int porta);
 
