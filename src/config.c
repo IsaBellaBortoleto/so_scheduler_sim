@@ -45,13 +45,26 @@ void diag_aviso(Diagnostico *d, const char *fmt, ...)
 
 int str_igual_ci(const char *a, const char *b)
 {
-    /* TODO: comparar caractere a caractere ignorando maiúsculas/minúsculas
-     * (tolower((unsigned char)*a) == tolower((unsigned char)*b)), até
-     * achar diferença ou os dois chegarem no '\0' ao mesmo tempo.
-     * Cuidado com a===NULL/b==NULL antes de desreferenciar. */
-    (void)a;
-    (void)b;
-    return 0;
+    if(a==NULL || b==NULL)
+    {
+        return 0;
+    }
+    while(*a && *b)
+    {
+        /* O cast para unsigned char é obrigatório: tolower com char negativo
+         * (byte de letra acentuada, onde char é signed) é comportamento
+         * indefinido. */
+        if(tolower((unsigned char)*a) != tolower((unsigned char)*b))
+        {
+            return 0;
+        }
+        a++;
+        b++;
+    }
+
+    /* Saiu do laço porque pelo menos uma acabou: só são iguais se as DUAS
+     * acabaram ('\0' == '\0'). Sem isso, "RM" seria igual a "RMS". */
+    return *a == *b;
 }
 
 /* Remove espaços/tabs/CR do início e do fim, IN PLACE.

@@ -41,8 +41,58 @@
  *  Verifica as partes com logica de verdade. Se algo for quebrado numa
  *  refatoracao, o assert avisa na hora, com arquivo e linha.
  * ========================================================================*/
+
+/* Algoritmo inventado, so para o teste: prova que um escalonador novo entra
+ * no sistema sem que nenhuma linha do kernel mude (requisito 4.2). */
+static long prio_teste(const TCB *t, int tick)
+{
+    (void)t;
+    (void)tick;
+    return 42;
+}
+
+/* Interface plugavel do escalonador (escalonador.h). */
+static void teste_escalonador(void)
+{
+    const Escalonador *achado;
+    Escalonador novo = { "TESTE", "algoritmo inventado para o autoteste", prio_teste };
+
+    /* Comparacao sem diferenciar maiusculas (requisito 3.3.2). O caso
+     * "RM" x "RMS" e o que pega uma comparacao que para na string mais curta. */
+    assert(str_igual_ci("RM", "rm") == 1);
+    assert(str_igual_ci("RM", "RMS") == 0);
+    assert(str_igual_ci("RMS", "RM") == 0);
+    assert(str_igual_ci(NULL, "RM") == 0);
+
+    /* O main ja chamou escalonador_registrar_padroes(): RM e EDF tem que
+     * estar na tabela e ser encontrados com qualquer combinacao de caixa. */
+    assert(escalonador_qtde() >= 2);
+    assert(escalonador_buscar("rm") != NULL);
+    assert(escalonador_buscar("Edf") != NULL);
+    assert(escalonador_buscar("RMS") == NULL);   /* nome parecido nao serve */
+    assert(escalonador_buscar(NULL) == NULL);
+
+    /* Um algoritmo novo: registra, e a busca passa a encontra-lo. A chamada
+     * fica FORA do assert de proposito -- se o programa for compilado com
+     * -DNDEBUG os asserts somem, e o registro sumiria junto. */
+    escalonador_registrar(&novo);
+    achado = escalonador_buscar("teste");
+    assert(achado != NULL);
+    assert(achado->prioridade(NULL, 0) == 42);   /* chamada pelo ponteiro */
+
+    /* A tabela guarda uma COPIA da struct: estragar o original depois de
+     * registrar nao pode afetar o que esta registrado. */
+    novo.nome = "ESTRAGADO";
+    assert(escalonador_buscar("ESTRAGADO") == NULL);
+    assert(escalonador_buscar("teste") != NULL);
+
+    printf("autoteste: interface do escalonador ... ok\n");
+}
+
 static void autoteste(void)
 {
+    teste_escalonador();
+
     /* TODO: como config_carregar_texto recebe TEXTO, o teste nao precisa
      * de arquivo nenhum: passe uma string literal que exercite, de uma vez,
      * as regras do parser que mais quebram:

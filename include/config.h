@@ -38,6 +38,13 @@ void diag_aviso(Diagnostico *d, const char *fmt, ...);
  * Retorna 1 se carregou sem erros, 0 caso contrario (erros e avisos em d). */
 int config_carregar_texto(const char *conteudo, Estado *e, Diagnostico *d);
 
+/* Compara duas strings ignorando maiusculas/minusculas (requisito 3.3.2:
+ * "rm" == "RM"). Retorna 1 se iguais, 0 se diferentes -- o contrario do
+ * strcmp, entao da para usar direto em if. NULL em qualquer um dos lados
+ * retorna 0 (inclusive NULL com NULL).
+ *
+ * So letras ASCII perdem a caixa: acentuadas em UTF-8 sao comparadas byte a
+ * byte ("EDF" == "edf", mas "É" != "é"). */
 int str_igual_ci(const char *a, const char *b);
 
 #endif

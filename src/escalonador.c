@@ -16,10 +16,13 @@ static int         n_algoritmos = 0;
 
 void escalonador_registrar(const Escalonador *esc)
 {
-    /* TODO: se esc==NULL ou n_algoritmos>=MAX_ALGORITMOS, ignore. Senão,
-     * tabela[n_algoritmos] = *esc (copia o struct inteiro, incluindo o
-     * ponteiro de função) e incremente n_algoritmos. */
-    (void)esc;
+    /* Ponteiro nulo ou tabela cheia: ignora em silêncio, e escalonador_buscar
+     * devolverá NULL para esse nome. A atribuição copia a struct inteira, por
+     * isso quem chama pode passar uma variável local (ver .h sobre os textos). */
+    if (esc == NULL || n_algoritmos >= MAX_ALGORITMOS)
+        return;
+    tabela[n_algoritmos] = *esc;
+    n_algoritmos++;
 }
 
 int                escalonador_qtde(void)      { return n_algoritmos; }
@@ -27,10 +30,16 @@ const Escalonador *escalonador_em(int i)       { return &tabela[i];   }
 
 const Escalonador *escalonador_buscar(const char *nome)
 {
-    /* TODO: percorrer 'tabela' comparando tabela[i].nome com 'nome' via
-     * str_igual_ci (requisito 3.3.2: case-insensitive). Devolver o
-     * ponteiro pro primeiro que bater, ou NULL se nenhum bater. */
-    (void)nome;
+    /* Busca linear (a tabela é minúscula); "rm" acha "RM" por causa do
+     * str_igual_ci. O ponteiro devolvido aponta para a própria tabela:
+     * vale até o fim do programa e não precisa de free. */
+    int i;
+    for (i = 0; i < n_algoritmos; i++) {
+        if (str_igual_ci(tabela[i].nome, nome)) {
+            return &tabela[i];
+        }
+    }
+
     return NULL;
 }
 
@@ -66,8 +75,15 @@ static long prio_edf(const TCB *t, int tick)
 
 void escalonador_registrar_padroes(void)
 {
-    /* TODO: montar um Escalonador {"RM", "...", prio_rm} e outro {"EDF",
-     * "...", prio_edf} e chamar escalonador_registrar() pra cada um. */
+    /* Campos: nome no arquivo de configuração, descrição da interface, função
+     * de prioridade. As structs podem ser locais porque escalonador_registrar
+     * as copia. Algoritmo novo = mais uma struct e mais uma chamada aqui
+     * (requisito 4.2), respeitando MAX_ALGORITMOS. */
+    Escalonador rm = {"RM", "Rate Monotonic", prio_rm};
+    Escalonador edf = {"EDF", "Earliest Deadline First", prio_edf};
+
+    escalonador_registrar(&rm);
+    escalonador_registrar(&edf);
 }
 
 /* ----------------------------- desempate (4.3) --------------------------- */
