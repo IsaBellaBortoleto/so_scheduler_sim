@@ -29,15 +29,32 @@ void diag_erro(Diagnostico *d, const char *fmt, ...)
      * limite). Senão, monte a mensagem formatada com va_start/vsnprintf
      * (vsnprintf(d->erros[d->n_erros], MAX_DIAG_TXT, fmt, args)) e
      * incremente d->n_erros. Não esquecer va_end. */
-    (void)d;
-    (void)fmt;
+    if (d->n_erros >= MAX_DIAG)
+    {
+        return;
+    }
+    va_list args;
+    va_start(args,fmt);
+    
+    vsnprintf(d->erros[d->n_erros],MAX_DIAG_TXT,fmt, args);
+    va_end(args);        
+    d->n_erros++;
+    
 }
 
 void diag_aviso(Diagnostico *d, const char *fmt, ...)
 {
     /* TODO: igual a diag_erro, mas em d->avisos / d->n_avisos. */
-    (void)d;
-    (void)fmt;
+    if (d->n_avisos >= MAX_DIAG)
+    {
+        return;
+    }
+    va_list args;
+    va_start(args,fmt);
+    
+    vsnprintf(d->avisos[d->n_avisos],MAX_DIAG_TXT,fmt, args);
+    va_end(args);        
+    d->n_avisos++;
 }
 
 /* ------------------------------ utilitários ------------------------------ */
@@ -48,8 +65,22 @@ int str_igual_ci(const char *a, const char *b)
      * (tolower((unsigned char)*a) == tolower((unsigned char)*b)), até
      * achar diferença ou os dois chegarem no '\0' ao mesmo tempo.
      * Cuidado com a===NULL/b==NULL antes de desreferenciar. */
-    (void)a;
-    (void)b;
+    //serve para comparar duas strings garantindo que "RM", "rm" ou "Rm" sejam considerados exatamente a mesma coisa.
+    if (a == NULL || b == NULL)
+    {
+        return 0;
+    }
+    //Laço que funciona até as duas palavras termine e verifica se as letras são igauais
+    while (*a != '\0' && *b != '\0' && tolower((unsigned char)*a) == tolower((unsigned char)*b))
+    {
+        a++;
+        b++;
+    }
+    if (*a == '\0'&& *b=='\0')
+    {
+        return 1;
+    }
+
     return 0;
 }
 
@@ -70,7 +101,17 @@ static char *trim(char *s)
      * espaço sobrando ao redor (ex. "RM ; 3 ; 1" -> campo " 3 "). Chame
      * trim() de novo em cada campo depois de separar por ';', senão
      * "algoritmo ; 3 ; 1" quebra o campo_int por causa do espaço. */
-    (void)s;
+    int len = strlen(s);
+    
+    while (len > 0 && isspace((unsigned char)s[len - 1])) {
+        s[len - 1] = '\0'; // Substitui o espaço por fim de string
+        len--;             // Recua o tamanho
+    }
+    while (*s != '\0' && isspace((unsigned char)*s)) {
+        s++; // Avança o ponteiro para a direita
+    }
+        
+    
     return s;
 }
 
@@ -78,7 +119,12 @@ static void str_maiuscula(char *s)
 {
     /* TODO: percorrer a string e aplicar toupper((unsigned char)*s) em
      * cada posição, in place. */
-    (void)s;
+    while (*s != '\0')
+    {
+        *s = toupper((unsigned char)*s);
+        s++;
+    }
+    
 }
 
 /* Quebra a linha em campos separados por ';'.
@@ -106,12 +152,39 @@ static int split_campos(char *linha, char *campos[], int max)
      *    (mas só o final; um campo vazio no MEIO, tipo "1;;5", é legítimo
      *    e deve ser preservado, conforme o comentário acima explica).
      * 4) respeitar o limite 'max' pra não estourar o array campos[]. */
-    (void)linha;
-    (void)campos;
-    (void)max;
-    return 0;
-}
+    //Essas duas variáveis servem como contrladores na leitura dos campos 
+     int quant = 0;
+    char *ini = linha;
+    //Evita o estouro de memória do array
+    while (quant < max)
+    {
+        //procura a primeira ocorrência do caractere e retorna um ponteiro para ele. Nesse caso, vai muda o ';' por '\0'
+        char *pont_temp;
+        pont_temp = strchr(ini, ';');
+        if (pont_temp !=NULL)
+        {
+            campos[quant] = ini;
+            *pont_temp = '\0';
+            ini = pont_temp+1;
+            quant++;
 
+        }else
+        {
+            campos[quant] = ini;
+            quant++;
+            break; 
+        }
+
+        
+    }
+    if (quant > 0 && campos[quant - 1][0] == '\0')
+    {
+        quant--;
+    }
+
+    return quant;
+}
+//Conversor de texto para número
 /* Lê um inteiro validando que o texto inteiro é numérico.
  * Campo vazio => devolve `padrao` (requisito 3.2).
  * Texto inválido => devolve 0 e sinaliza erro em *ok. */
@@ -121,9 +194,24 @@ static int campo_int(const char *txt, int padrao, int *ok)
      * strtol(txt, &fim, 10) e conferir que 'fim' chegou no '\0' (ou seja,
      * a string inteira foi consumida, sem lixo depois do número) e que
      * fim != txt (realmente leu algo). Se não validar, *ok=0 e devolve 0. */
-    *ok = 1;
-    (void)txt;
-    return padrao;
+    if ( txt == NULL || txt[0] == '\0')
+    {
+        *ok = 1;
+        return padrao;
+    }
+    char *fim; 
+    long resultado = 0;
+    resultado = strtol(txt,&fim,10);
+    if (fim == txt || *fim!='\0')
+    {
+        *ok = 0;
+        return 0; 
+    }else
+    {
+        *ok = 1;
+        return (int)resultado;
+    }
+    
 }
 
 /* Converte "F0E0D0" em três componentes RGB.
@@ -137,9 +225,52 @@ static int campo_cor(const char *txt, TCB *t)
      * "%2x%2x%2x", &r, &g, &b) (com unsigned int) pra extrair os três
      * bytes. Validar cada caractere com isxdigit antes de confiar no
      * sscanf. Retornar 0 se o formato não bater. */
-    (void)txt;
-    (void)t;
-    return 0;
+    
+    //se o atributo parametrizado for nulo, deve-se declara valores padrões para cada variável que armazena o valor da cor
+    if (txt[0] == '\0')
+    {
+        t->r = PADRAO_COR_R;
+        t->g = PADRAO_COR_G;
+        t->b = PADRAO_COR_B;
+
+        return 1;
+    }else
+    {
+        
+        const char *texto_cor = txt;
+        //Analisando se o texto recebido no txt começava com # ou sem.
+        if (texto_cor[0] == '#')
+        {
+            texto_cor++;
+        }
+
+        //Verificar quantidade de caracteres que texto_cor possui
+        if (strlen(texto_cor) == 6)
+        {
+            for (int i = 0; i < strlen(texto_cor); i++)
+            {
+                if (!isxdigit(texto_cor[i])
+                {
+                    return 0;
+                }
+            }
+            
+        }else
+        {
+            return 0;
+        }
+        unsigned int vr,vg,vb;
+        
+        //sscanf(texto a ler lido, formato a ler, variáveis que receram o valor)
+        sscanf(texto_cor,"%2x%2x%2x", &vr,&vg,&vb);
+
+        t->r = vr;
+        t->g = vg;
+        t->b = vb;
+
+        return 1;
+    }
+
 }
 
 /* ----------------------------- carga principal --------------------------- */
@@ -188,8 +319,169 @@ int config_carregar(const char *caminho, Estado *e, Diagnostico *d)
      *     linhas tenham dado erro -- é melhor reportar todos os erros de
      *     uma vez do que parar no primeiro, por isso os `continue` em vez
      *     de `return` nos passos acima). */
-    (void)caminho;
-    (void)e;
-    (void)d;
-    return 0;
+    //Passo 2: Procura o ficheiro que está neste caminho e abre-o no modo de leitura ("r" vem de read).
+    int capacidade_atual = 0;
+    int cabecalho_lido = 0;
+    FILE *f = fopen(caminho, "r");
+    if (f == NULL) {
+        diag_erro(d, "Falha ao abrir o arquivo: %s", caminho);
+        return 0; // Aborta se não conseguir abrir (ex: arquivo não existe)
+    }
+
+    strcpy(e->algoritmo,PADRAO_ALGORITMO);//armazenando valores para variável de string
+    e->quantum = PADRAO_QUANTUM;
+    e->ncpus = PADRAO_CPUS;
+    e->tarefas = NULL;
+    e->cpus = NULL;
+    e->ntarefas = 0;
+
+    char buf[MAX_LINHA];
+    
+    int num_linha = 0;
+    while(fgets(buf,MAX_LINHA, f) != NULL)
+    {
+        num_linha++;
+        
+        char *linha_limpa = trim(buf);
+        if (linha_limpa[0]=='\0')
+        {
+            continue;
+        }
+        char *campos[MAX_LINHA];
+        //Representa quantos pedaços de texto a linha atual do arquivo tinha.
+        int ncampos = split_campos(linha_limpa, campos,MAX_LINHA);
+        //Retirar espaços vazios
+        for (int i = 0; i < ncampos; i++)
+        {
+            campos[i] = trim(campos[i]);
+        }
+        
+
+        //Precisa de uma flag para conseguir verificar qual linha ficará o cabeçalho
+        if (!cabecalho_lido)
+        {
+            //Tratando  o campo[0]
+            str_maiuscula(campos[0]);
+            strncpy(e->algoritmo, campos[0],sizeof(e->algoritmo) - 1);
+            e->algoritmo[sizeof(e->algoritmo) - 1] = '\0'; //Garantindo o fim de string
+
+            //Trata o quantum e ncpus usando campo_int(passando valores padrão)
+            int ok_quantum = 1,ok_cpus = 1;
+            e->quantum = campo_int(campos[1],PADRAO_QUANTUM,&ok_quantum);
+            e->ncpus = campo_int(campos[2], PADRAO_CPUS,&ok_cpus);
+            
+            if (e->ncpus < 1)
+            {
+                diag_erro(d, "Linha %d: quantidade de CPUs inválida", num_linha);
+            }
+            
+            cabecalho_lido = 1;
+            continue;
+        }
+
+        //Leitura é feita por linha, assim para pegar cada valor de variável estará armazenada em cada campo.
+        int ok_id = 1,ok_prazo = 1,ok_duracao = 1, ok_ingresso = 1, ok_periodo=1;
+        TCB tarefa;
+
+        //Campo.int(valor do campo,valor default, endereço para verificação se o valor é válido)
+        tarefa.id = campo_int(campos[0], 0,&ok_id);
+        //Maneira da variável tarefa recebe o valor da cor
+        campo_cor(campos[1], &tarefa);
+        tarefa.ingresso = campo_int(campos[2],0,&ok_ingresso);
+        tarefa.duracao = campo_int(campos[3],0,&ok_duracao);
+        tarefa.periodo = campo_int(campos[4],0,&ok_periodo);
+        
+        //campo_int aciona o valor padrão (tarefa.periodo) automaticamente caso o campo no arquivo venha vazio.
+        tarefa.prazo    = campo_int(campos[5], tarefa.periodo, &ok_prazo);
+
+        // Cópia de texto bruta para os eventos (req 3.3.5 do seu projeto)
+        strncpy(tarefa.eventos, campos[6], sizeof(tarefa.eventos) - 1);
+        tarefa.eventos[sizeof(tarefa.eventos) - 1] = '\0'; // Prevenção de estouro de memória
+        
+        //Validação das flags para caso tenha recebido um valor inválido
+        if (ok_id == 0 || ok_duracao == 0 || ok_ingresso == 0 || ok_periodo == 0 || ok_prazo == 0)
+        {
+            diag_erro(d, "Linha %d: Valores numericos invalidos", num_linha);
+            continue;
+        }
+        //Verificação se o período > 0, pois se acontecer ao contrário a lógica do prgrama será comprometida
+        
+        if (tarefa.periodo == 0) {
+            diag_aviso(d, "Linha %d: Periodo 0, ignorando tarefa.", num_linha);
+            continue;
+        } else if (tarefa.periodo < 0) {
+            diag_erro(d, "Linha %d: Periodo negativo (invalido).", num_linha);
+            continue;
+        }
+
+
+        //Inicializando os valores para a tarefa nova         
+        tarefa.estado = EST_INATIVA;
+        tarefa.exec_restante = 0;
+        tarefa.cpu = -1;
+        tarefa.ativacoes = 0;
+        tarefa.sorteada = 0;
+        tarefa.ativacao = 0;
+        tarefa.deadline_abs = 0;
+
+        if(e->ntarefas == capacidade_atual)
+        {
+            if(capacidade_atual == 0)
+            {
+                capacidade_atual = 2;
+            }else if(capacidade_atual > 0)
+            {
+                capacidade_atual = capacidade_atual*2;
+            }
+            TCB *temporario = realloc(e->tarefas,capacidade_atual * sizeof(TCB));
+
+            //Controle para evitar vazamento de memória
+            if (temporario == NULL)
+            {
+                diag_erro(d,"Erro na linha %d: O espaço na memória RAM já está cheio", num_linha);
+                break;
+            }else
+            {
+                e->tarefas = temporario;
+            }
+ 
+
+        }
+        //Armazenamento da tarefa
+        e->tarefas[e->ntarefas] = tarefa;
+        e->ntarefas++;
+    
+    }
+    fclose(f);
+    
+    //Verificação se o arquivo estava vazio
+    if ( cabecalho_lido == 0)
+    {
+        diag_erro(d, "O arquivo se encontra vazio");
+    }
+    
+    //Alocar o processadores que serão utilizados na CPU
+    e->cpus = malloc(e->ncpus*sizeof(CPU));
+
+    if (e->cpus != NULL)
+    {
+        for (int i = 0; i < e->ncpus; i++)
+        {
+            e->cpus[i].id = i;
+            e->cpus[i].tarefa = -1;
+            e->cpus[i].ticks_desligada = 0;
+        }   
+    }
+     
+    e->tick = 0;
+
+    if (d->n_erros == 0)
+    {
+        return 1;
+    }else
+    {
+        return 0;
+    }
+    
+
 }

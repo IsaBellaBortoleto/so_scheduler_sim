@@ -75,7 +75,7 @@ void estado_liberar(Estado *e)
      * double-free). */
     if (e->tarefas != NULL)
     {
-        
+            
         free(e->tarefas);
         //Prevenção para que ocorra um double free
         e->tarefas = NULL;
