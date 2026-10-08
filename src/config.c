@@ -290,6 +290,9 @@ static int campo_int_min(Diagnostico *d, int linha, const char *nome,
     return valor;
 }
 
+/* Parseia o texto de configuracao linha a linha: 1a linha valida = cabecalho
+ * (algoritmo;quantum;qtde_cpus), demais = tarefas. Preenche *e e aloca
+ * e->tarefas/e->cpus; em erro fatal libera tudo e retorna 0. */
 int config_carregar_texto(const char *conteudo, Estado *e, Diagnostico *d)
 {
     char vazio[1] = "";
@@ -324,6 +327,7 @@ int config_carregar_texto(const char *conteudo, Estado *e, Diagnostico *d)
 
     strcpy(copia, conteudo);
 
+    /* copia e quebrada em linhas no lugar ('\n' -> '\0') */
     for (linha = copia; linha != NULL; linha = prox)
     {
         char *campos[MAX_CAMPOS];
@@ -350,6 +354,7 @@ int config_carregar_texto(const char *conteudo, Estado *e, Diagnostico *d)
 
         if (!tem_cabecalho)
         {
+            /* primeira linha nao vazia/comentario = cabecalho, nao tarefa */
             tem_cabecalho = 1;
 
             if (strlen(campos[0]) >= sizeof e->algoritmo)
@@ -380,6 +385,7 @@ int config_carregar_texto(const char *conteudo, Estado *e, Diagnostico *d)
         t.periodo = campo_int_min(d, num, "periodo", campos[4],
                                   0, 0, &ok);
 
+        /* tarefa aperiodica nao e simulada - descartada, nao e erro */
         if (ok && t.periodo == 0)
         {
             diag_aviso(d,
@@ -418,6 +424,7 @@ int config_carregar_texto(const char *conteudo, Estado *e, Diagnostico *d)
             }
             else if (t.prazo == 0)
             {
+                /* prazo omitido (0) -> default = periodo */
                 diag_aviso(d,
                            "linha %d: tarefa \"%s\" com prazo 0; assumido prazo = periodo (%d)",
                            num, campos[0], t.periodo);
@@ -426,6 +433,7 @@ int config_carregar_texto(const char *conteudo, Estado *e, Diagnostico *d)
             }
         }
 
+        /* campo 7 (eventos) leva o resto da linha; aqui so poda ';'/espacos no fim */
         {
             size_t tam = strlen(campos[6]);
 
@@ -446,6 +454,7 @@ int config_carregar_texto(const char *conteudo, Estado *e, Diagnostico *d)
             snprintf(t.eventos, sizeof t.eventos, "%s", campos[6]);
         }
 
+        /* id duplicado invalida a tarefa (mas nao aborta o parse das demais) */
         for (i = 0; ok && i < e->ntarefas; i++)
         {
             if (e->tarefas[i].id == t.id)
@@ -461,6 +470,7 @@ int config_carregar_texto(const char *conteudo, Estado *e, Diagnostico *d)
             continue;
         }
 
+        /* vetor de tarefas cresce dobrando a capacidade (amortizado O(1)) */
         if (e->ntarefas == capacidade)
         {
             int nova = capacidade ? capacidade * 2 : 16;
@@ -496,6 +506,7 @@ int config_carregar_texto(const char *conteudo, Estado *e, Diagnostico *d)
         valido = 0;
     }
 
+    /* so aloca e->cpus (qtde definida no cabecalho) se tudo ate aqui foi valido */
     if (valido)
     {
         e->cpus = calloc((size_t)e->ncpus, sizeof *e->cpus);
