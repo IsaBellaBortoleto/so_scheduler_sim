@@ -22,7 +22,11 @@
 <section id="barra-controles">
   <div class="grupo-controle">
     <label for="entrada-arquivo">arquivo de configuração</label>
-    <input type="text" id="entrada-arquivo" value="config.txt" placeholder="ex.: config.txt">
+    <!-- Seletor de arquivo, e nao campo de texto: o professor testa com o
+         arquivo no pendrive dele, e a letra da unidade muda de maquina para
+         maquina. Sem 'accept' de proposito -- o req. 3.3.4 permite
+         qualquer nome de arquivo. -->
+    <input type="file" id="entrada-arquivo">
     <button id="btn-carregar">carregar</button>
   </div>
   <div class="grupo-controle">
@@ -43,17 +47,13 @@
 
   <section id="area-gantt">
     <h2>gráfico de Gantt</h2>
+    <!-- O Gantt chega PRONTO do servidor, desenhado pelo gantt.c (opcao A).
+         <img> em vez de inserir o SVG com innerHTML: o navegador busca e
+         desenha sozinho, e um SVG dentro de <img> nao executa script.
+         A legenda vem dentro do proprio SVG, por isso nao ha legenda aqui:
+         assim ela e igual na tela e no arquivo exportado. -->
     <div id="gantt-scroll">
-      <svg id="svg-gantt" xmlns="http://www.w3.org/2000/svg"></svg>
-    </div>
-    <div id="legenda">
-      <span class="item-legenda"><span class="amostra amostra-executando"></span> executando (cor da tarefa, número = CPU)</span>
-      <span class="item-legenda"><span class="amostra amostra-pronta"></span> pronta (fila)</span>
-      <span class="item-legenda"><span class="amostra amostra-suspensa"></span> suspensa</span>
-      <span class="item-legenda"><span class="marcador">&#9650;</span> chegada</span>
-      <span class="item-legenda"><span class="marcador">&#9679;</span> término</span>
-      <span class="item-legenda"><span class="marcador marcador-erro">&#10007;</span> prazo perdido</span>
-      <span class="item-legenda"><span class="marcador">&#9733;</span> desempate por sorteio</span>
+      <img id="img-gantt" alt="gráfico de Gantt da simulação">
     </div>
   </section>
 
