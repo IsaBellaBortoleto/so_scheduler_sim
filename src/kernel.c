@@ -35,8 +35,11 @@ int sim_indice_por_id(const Estado *e, int id)
 {
     /* TODO: percorrer e->tarefas procurando id igual; devolver o índice
      * ou -1 se não achar. */
-    (void)e;
-    (void)id;
+    for (int i = 0; i < e->ntarefas; i++)
+    {
+        if (e->tarefas[i].id == id)
+            return i;
+    }
     return -1;
 }
 
@@ -265,9 +268,13 @@ int sim_iniciar(Simulacao *s, Estado *inicial, Diagnostico *d)
         return 0;
     }
 
-    /* Começa limpo. Quem chama deve ter dado sim_liberar na simulação
-     * anterior, senão o histórico dela vaza aqui. */
-    memset(s, 0, sizeof *s);
+    /* Começa limpo. Se já havia uma simulação (o usuário carregou um
+     * segundo arquivo), o histórico dela é liberado aqui; se 's' estava
+     * zerada, sim_liberar não faz nada. Só chega aqui quem passou na
+     * validação acima: um arquivo recusado não apaga a simulação anterior.
+     * CONTRATO: 's' tem que estar zerada (memset) ou já iniciada, nunca
+     * com lixo de memória. */
+    sim_liberar(s);
     s->esc = esc;
 
     /* Cópia independente: quem chamou pode liberar 'inicial' depois. Se o
@@ -414,18 +421,29 @@ int sim_editar_tarefa(Simulacao *s, int id_tarefa, const char *campo,
     return 0;
 }
 
+/* LIBERAR — devolve ao sistema toda a memória da simulação e deixa 's'
+ * ZERADA, que é o mesmo que "nenhum arquivo carregado".
+ *
+ * É segura em uma Simulacao zerada (não faz nada) e pode ser chamada duas
+ * vezes seguidas. Por isso sim_iniciar a chama sempre, sem perguntar se
+ * havia simulação antes. */
 void sim_liberar(Simulacao *s)
 {
-    /* TODO: estado_liberar em cada entrada de s->historico, depois
-     * free(s->historico) e zerar n_hist/cap_hist. Por fim,
-     * estado_liberar(&s->atual). */
+    /* Cada foto do histórico tem os SEUS vetores de tarefas e de CPUs: é
+     * preciso liberar uma por uma antes de liberar o vetor de fotos. Com
+     * 190 tarefas e 5000 ticks, são centenas de MB que voltam aqui. */
     for (int i = 0; i < s->n_hist; i++)
     {
         estado_liberar(&s->historico[i]);
     }
-    free(s->historico);
+    free(s->historico); /* free(NULL) é permitido: não faz nada */
     s->historico = NULL;
     s->n_hist = 0;
     s->cap_hist = 0;
     estado_liberar(&s->atual);
+
+    /* Zera o resto (escalonador, terminada, último evento). Sem isto 'esc'
+     * continuaria apontando para um algoritmo, e a página acharia que ainda
+     * existe uma simulação carregada. */
+    memset(s, 0, sizeof *s);
 }

@@ -297,8 +297,8 @@ static void rota_carregar(Simulacao *sim, soquete_t c, const Pedido *p)
 
     if (ok)
     {
-        /* TODO: chamar sim_liberar(sim) quando ela existir; hoje o histórico
-         * da simulação anterior fica sem ser liberado. */
+        /* A memória da simulação anterior é liberada dentro de
+         * sim_iniciar, e só depois de o arquivo novo ser aceito. */
         ok = sim_iniciar(sim, &ini, &d);
         estado_liberar(&ini); /* sim_iniciar guardou uma cópia */
     }

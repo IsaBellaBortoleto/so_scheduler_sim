@@ -363,8 +363,24 @@ static void teste_sim_iniciar(void)
 
     /* Copia independente: liberar o Estado original nao afeta a simulacao. */
     assert(s.atual.tarefas != e.tarefas);
+
+    /* Carregar POR CIMA de uma simulacao que ja existe: um arquivo recusado
+     * nao apaga a anterior; um arquivo aceito substitui (e libera) a antiga. */
+    strcpy(e.algoritmo, "xyz");
+    assert(sim_iniciar(&s, &e, &d) == 0);
+    assert(s.esc == escalonador_buscar("RM") && s.n_hist == 1 && s.atual.ntarefas == 2);
+    strcpy(e.algoritmo, "edf");
+    assert(sim_iniciar(&s, &e, &d) == 1);
+    assert(s.esc == escalonador_buscar("EDF") && s.n_hist == 1 && s.atual.ntarefas == 2);
+
     estado_liberar(&e);
     assert(s.atual.ntarefas == 2 && s.atual.tarefas[1].id == 2);
+
+    /* sim_liberar deixa a Simulacao zerada ("nada carregado") e pode ser
+     * chamada duas vezes sem quebrar. */
+    sim_liberar(&s);
+    assert(s.historico == NULL && s.n_hist == 0 && s.cap_hist == 0);
+    assert(s.esc == NULL && s.atual.tarefas == NULL && s.atual.ntarefas == 0);
     sim_liberar(&s);
 
     printf("autoteste: sim_iniciar ... ok\n");
