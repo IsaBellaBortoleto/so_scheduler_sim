@@ -6,6 +6,10 @@
 #define PADRAO_ALGORITMO "RM"
 #define PADRAO_QUANTUM   2
 #define PADRAO_CPUS      1
+/* Periodo nao informado vale 0, que pelo enunciado e "aperiodica": a tarefa
+ * e ignorada com aviso (4.4). Nao inventamos um periodo positivo: simular
+ * uma tarefa com um periodo que ninguem escreveu enganaria o usuario. */
+#define PADRAO_PERIODO   0
 #define PADRAO_COR_R     0x3B
 #define PADRAO_COR_G     0x82
 #define PADRAO_COR_B     0xF6

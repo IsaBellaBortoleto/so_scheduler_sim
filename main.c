@@ -260,6 +260,8 @@ static void teste_config(void)
     assert(e.tarefas[1].ingresso == 1 && e.tarefas[1].duracao == 2);
     assert(e.tarefas[1].prazo == 5);                    /* vazio = periodo */
     assert(e.tarefas[0].cpu == -1 && e.tarefas[0].estado == EST_INATIVA);
+    /* O aviso da aperiodica cita o 0, porque o 0 esta escrito no arquivo. */
+    assert(strstr(d.avisos[0], "(periodo 0)") != NULL);
     assert(e.cpus[1].id == 1 && e.cpus[1].tarefa == -1);
     estado_liberar(&e);
 
@@ -268,6 +270,14 @@ static void teste_config(void)
     assert(config_carregar_texto(";;\n7;;0;1;4", &e, &d) == 1);
     assert(strcmp(e.algoritmo, PADRAO_ALGORITMO) == 0);
     assert(e.quantum == PADRAO_QUANTUM && e.ncpus == PADRAO_CPUS);
+    estado_liberar(&e);
+
+    /* Periodo em branco: vale o padrao 0, a tarefa e ignorada, e o aviso
+     * diz que o 0 veio do padrao (o usuario nao escreveu 0 no arquivo). */
+    memset(&d, 0, sizeof d);
+    assert(config_carregar_texto("rm;2;1\n1;;0;1;5;5\n2;;0;1;;", &e, &d) == 1);
+    assert(e.ntarefas == 1 && d.n_avisos == 1);
+    assert(strstr(d.avisos[0], "periodo nao informado") != NULL);
     estado_liberar(&e);
 
     /* Arquivo ruim: TODOS os erros sao reportados de uma vez (cor, duracao,

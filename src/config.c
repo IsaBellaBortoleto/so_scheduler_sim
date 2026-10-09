@@ -22,6 +22,7 @@
  *   4.4   tarefa aperiódica (período 0) .. ignorada com AVISO
  *
  *
+ *   período vazio ...... padrão 0 = aperiódica; ignorada, com aviso próprio
  *   prazo vazio ou 0 ... vale o período (o 0 escrito gera aviso)
  *   quantum 0 .......... sem limite de quantum
  *   lista de eventos ... guardada inteira; só é interpretada no Projeto B
@@ -383,14 +384,23 @@ int config_carregar_texto(const char *conteudo, Estado *e, Diagnostico *d)
         t.cpu = -1;
 
         t.periodo = campo_int_min(d, num, "periodo", campos[4],
-                                  0, 0, &ok);
+                                  PADRAO_PERIODO, 0, &ok);
 
-        /* tarefa aperiodica nao e simulada - descartada, nao e erro */
+        /* tarefa aperiodica nao e simulada - descartada, nao e erro (4.4).
+         * São dois avisos diferentes: se o usuário ESCREVEU 0, a mensagem
+         * cita o 0; se deixou em branco, diz que o 0 veio do valor padrão,
+         * para não apontar um número que não está no arquivo. */
         if (ok && t.periodo == 0)
         {
-            diag_aviso(d,
-                       "linha %d: tarefa \"%s\" e aperiodica (periodo 0) e foi ignorada",
-                       num, campos[0]);
+            if (campos[4] == NULL || *campos[4] == '\0')
+                diag_aviso(d,
+                           "linha %d: tarefa \"%s\": periodo nao informado; "
+                           "padrao 0 (aperiodica), tarefa ignorada",
+                           num, campos[0]);
+            else
+                diag_aviso(d,
+                           "linha %d: tarefa \"%s\" e aperiodica (periodo 0) e foi ignorada",
+                           num, campos[0]);
             continue;
         }
 
