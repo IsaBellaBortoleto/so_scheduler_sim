@@ -266,10 +266,12 @@ static int servir_recurso(soquete_t c, const Pedido *p)
 }
 
 /* Manda o estado atual da simulação em JSON. É a resposta de quase todas as
- * rotas /api: a página sempre recebe o estado novo e se redesenha. */
-static void responder_estado(Simulacao *sim, soquete_t c)
+ * rotas /api: a página sempre recebe o estado novo e se redesenha.
+ * 'd' traz os avisos a mandar junto; NULL = sem avisos (todas as rotas,
+ * menos a de carregar). */
+static void responder_estado(Simulacao *sim, soquete_t c, const Diagnostico *d)
 {
-    int n = estado_json_atual(sim, json, sizeof json);
+    int n = estado_json_com_avisos(sim, d, json, sizeof json);
     if (n < 0)
         responder_texto(c, "500 Internal Server Error", "estado grande demais");
     else
@@ -278,8 +280,8 @@ static void responder_estado(Simulacao *sim, soquete_t c)
 
 /* POST /api/carregar: o corpo do pedido é o CONTEÚDO do arquivo escolhido na
  * página (por isso funciona do pendrive: o C nunca abre caminho nenhum).
- * Deu certo -> responde o estado novo. Deu errado -> responde a lista de
- * erros, e a simulação anterior continua valendo. */
+ * Deu certo -> responde o estado novo, com os avisos. Deu errado -> responde
+ * a lista de erros, e a simulação anterior continua valendo. */
 static void rota_carregar(Simulacao *sim, soquete_t c, const Pedido *p)
 {
     static Diagnostico d; /* static: tem uns 25 KB */
@@ -304,7 +306,8 @@ static void rota_carregar(Simulacao *sim, soquete_t c, const Pedido *p)
 
     if (ok)
     {
-        responder_estado(sim, c);
+        /* &d: os avisos do carregamento vão junto com o estado. */
+        responder_estado(sim, c, &d);
         return;
     }
     /* Falhou: {"erro":true,"erros":[...],"avisos":[...]}. O status é 200
@@ -348,7 +351,7 @@ static void atender(Simulacao *sim, soquete_t c)
         /* era um arquivo da página; servir_recurso já respondeu */
     }
     else if (get && strcmp(p.caminho, "/api/estado") == 0)
-        responder_estado(sim, c);
+        responder_estado(sim, c, NULL);
     else if (post && strcmp(p.caminho, "/api/carregar") == 0)
         rota_carregar(sim, c, &p);
     else
@@ -386,12 +389,28 @@ int servidor_iniciar(Simulacao *sim, int porta)
 
 void servidor_abrir_navegador(int porta)
 {
-    /* TODO: montar o comando com snprintf e executar com system():
-     *   Windows:  start "" "http://127.0.0.1:PORTA/"
-     *   Linux:    xdg-open "http://127.0.0.1:PORTA/"
-     *   Mac:      open "http://127.0.0.1:PORTA/"
-     * (#ifdef _WIN32 / #elif defined(__APPLE__) / #else)
+    /* Abrir o navegador é pedir isso ao sistema operacional, com o mesmo
+     * comando que se digitaria no terminal. O system() executa um comando de
+     * terminal; aqui só montamos o texto dele. Nenhuma biblioteca a mais.
+     *
+     * Cada sistema tem o seu comando, escolhido na COMPILAÇÃO pelo #ifdef:
+     *   Windows:  start "" "http://127.0.0.1:8080/"
+     *   Mac:      open "http://127.0.0.1:8080/"
+     *   Linux:    xdg-open "http://127.0.0.1:8080/"
+     *
      * O "" depois do start é o título da janela: sem ele, o start entende o
-     * endereço entre aspas como título e não abre nada. */
-    (void)porta;
+     * endereço entre aspas como título e não abre nada.
+     * No código, \" é uma aspa DENTRO do texto, e %d recebe a porta. */
+    char cmd[128];
+#ifdef _WIN32
+    snprintf(cmd, sizeof cmd, "start \"\" \"http://127.0.0.1:%d/\"", porta);
+#elif defined(__APPLE__)
+    snprintf(cmd, sizeof cmd, "open \"http://127.0.0.1:%d/\"", porta);
+#else
+    snprintf(cmd, sizeof cmd, "xdg-open \"http://127.0.0.1:%d/\"", porta);
+#endif
+
+    /* Sem tratamento de erro: se o navegador não abrir, o endereço já está
+     * impresso no terminal (main.c) e o usuário pode abrir à mão. */
+    system(cmd);
 }
