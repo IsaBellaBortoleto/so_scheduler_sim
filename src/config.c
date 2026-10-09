@@ -21,7 +21,7 @@
  *   3.3.6 espaços e linhas em branco ..... trim
  *   4.4   tarefa aperiódica (período 0) .. ignorada com AVISO
  *
- *
+ *   
  *   prazo vazio ou 0 ... vale o período (o 0 escrito gera aviso)
  *   quantum 0 .......... sem limite de quantum
  *   lista de eventos ... guardada inteira; só é interpretada no Projeto B
