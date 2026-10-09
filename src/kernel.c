@@ -321,17 +321,40 @@ int sim_avancar(Simulacao *s)
     return 1;
 }
 
+/* RETROCEDER (req. 1.5.2) — volta a simulação um tick.
+ *
+ * O histórico guarda uma FOTO do estado inteiro por tick, e a última foto é
+ * sempre a do tick atual:
+ *     historico: [tick 0] [tick 1] [tick 2] [tick 3]    n_hist = 4
+ * Retroceder = jogar fora a última foto e restaurar a anterior. O relógio
+ * volta junto, porque o número do tick faz parte do estado copiado.
+ *
+ * Devolve 1 se voltou, 0 se já estava no tick 0. */
 int sim_retroceder(Simulacao *s)
 {
-    /* TODO: se n_hist < 2, devolver 0 (não há pra onde voltar -- o
-     * primeiro snapshot é o tick 0). Senão: estado_liberar no último
-     * snapshot do histórico (o do tick atual, que vamos descartar),
-     * n_hist--, estado_liberar em s->atual, e então s->atual =
-     * estado_clonar(&historico[n_hist-1]) (restaura o snapshot anterior).
-     * Lembrar de zerar terminada=0 (retroceder sempre reabre a
-     * simulação, mesmo que ela já tivesse terminado). Devolver 1. */
-    (void)s;
-    return 0;
+    /* Com uma foto só (a do tick 0) não há para onde voltar. É isto que
+     * impede a simulação de ir para antes do início. */
+    if (s->n_hist < 2)
+        return 0;
+
+    /* Descarta a foto do tick atual. Se o usuário avançar de novo, ela é
+     * recalculada; assim nunca sobra no histórico um "futuro" que não vale
+     * mais (ex.: depois de editar uma tarefa). */
+    estado_liberar(&s->historico[s->n_hist - 1]);
+    s->n_hist--;
+
+    /* Libera o estado atual antes de trocá-lo: cada Estado tem vetores
+     * alocados (tarefas e CPUs), e sem isto a memória vazaria a cada clique. */
+    estado_liberar(&s->atual);
+
+    /* CLONAR, e não só atribuir: a atribuição copiaria os ponteiros, e o
+     * estado atual passaria a dividir os vetores com a foto guardada. O
+     * próximo avanço estragaria o histórico. */
+    s->atual = estado_clonar(&s->historico[s->n_hist - 1]);
+
+    /* Voltou um tick: mesmo que a simulação tivesse acabado, não acabou mais. */
+    s->terminada = 0;
+    return 1;
 }
 
 void sim_executar_tudo(Simulacao *s)
