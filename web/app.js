@@ -95,15 +95,27 @@
   /* ------------------------------ chamadas HTTP ---------------------------- */
 
   async function chamarApi(caminho, opcoes) {
-    /* TODO: fetch(caminho, opcoes); ler a resposta como JSON
-     * (await resp.json()); não lançar em resposta HTTP não-2xx -- o
-     * contrato usa o CORPO json ({erro:true,...} ou {ok:false,...}) pra
-     * sinalizar falha, não o status HTTP, então basta devolver o JSON já
-     * parseado pro chamador decidir. Se o fetch em si falhar (rede/
-     * servidor fora do ar), capturar num try/catch e devolver algo como
-     * {erro:true, motivo:"não consegui falar com o servidor"} em vez de
-     * deixar a exceção subir. */
-    return null;
+    /* O ÚNICO lugar que conversa com o programa em C. Manda o pedido e
+     * devolve a resposta já convertida de JSON para objeto.
+     *
+     * fetch é a função do navegador que faz um pedido HTTP. O 'await'
+     * espera a resposta sem travar a página.
+     *
+     * Não olha o status HTTP: quem diz se deu certo é o CORPO do JSON
+     * ("erro": true), como combinado com o servidor.
+     *
+     * O catch pega dois casos: o programa em C foi fechado, ou a resposta
+     * não era JSON. Devolve o erro NO MESMO FORMATO do servidor (erro,
+     * erros, avisos), para quem chamou tratar tudo do mesmo jeito. Assim a
+     * página avisa o usuário em vez de parecer travada. */
+    try {
+      const resp = await fetch(caminho, opcoes);
+      return await resp.json();
+    } catch (e) {
+      const motivo =
+        "Sem resposta do simulador. Verifique se o programa continua aberto.";
+      return { erro: true, motivo, erros: [motivo], avisos: [] };
+    }
   }
 
   const postJson = (caminho, corpo) => chamarApi(caminho, {
@@ -115,40 +127,103 @@
   /* ------------------------------ ações da UI ------------------------------ */
 
   async function aoAbrirPagina() {
-    /* TODO: const resp = await chamarApi('/api/estado'); se
-     * resp && resp.carregado: aplicarNovoEstado(resp) e
-     * definirControlesHabilitados(true). Senão, deixar a tela no estado
-     * inicial (só o seletor de arquivo habilitado).
-     * É isto que faz fechar e reabrir o navegador no meio da simulação
-     * não perder nada (card do kanban "testar fechar e reabrir"). */
+    /* Roda UMA vez, quando a página abre: pergunta ao C se já existe uma
+     * simulação carregada e, se existir, redesenha a tela com ela.
+     *
+     * É o que faz fechar e reabrir o navegador (ou apertar F5) não perder
+     * nada: a simulação mora no programa em C, e a página é só a tela.
+     *
+     * Se o C estiver fechado, chamarApi devolve {erro: true}, que não tem
+     * "carregado": o if é falso e a página fica na tela inicial. */
+    const resp = await chamarApi("/api/estado");
+    if (resp && resp.carregado) {
+      /* Nesta ordem: primeiro liga os botões, depois aplicarNovoEstado
+       * desliga os que não fazem sentido (ex.: "avançar" numa simulação
+       * já terminada). Invertido, o segundo desfaria o primeiro. */
+      definirControlesHabilitados(true);
+      aplicarNovoEstado(resp);
+    }
   }
 
   async function aoCarregar() {
-    /* TODO:
-     * 1) limpar area-diagnostico (mostrarDiagnostico([], [])).
-     * 2) const arquivo = els.entradaArquivo.files[0]; se não houver,
-     *    mostrarDiagnostico(['Escolha um arquivo de configuração antes
-     *    de carregar.'], []) e parar.
-     * 3) const resp = await chamarApi('/api/carregar', { method: 'POST',
-     *    body: arquivo }). Passar o próprio File como body faz o navegador
-     *    mandar os bytes como estão no disco -- inclusive do pendrive --
-     *    sem nenhuma leitura em JS. (file.text() também funciona, mas
-     *    decodifica como UTF-8 e já remove o BOM sozinho; aí o tratamento
-     *    de BOM do C nunca seria exercitado pela página.)
-     * 4) se resp.erro: mostrarDiagnostico(resp.erros||[], resp.avisos||[])
-     *    e parar aqui (não mexer em app.atual).
-     * 5) senão: mostrarDiagnostico([], resp.avisos||[]) se o servidor
-     *    mandar avisos junto (ex.: tarefa aperiódica ignorada, req. 4.4),
-     *    aplicarNovoEstado(resp); definirControlesHabilitados(true). */
+    /* Clique em "carregar": manda o arquivo escolhido para o C e mostra o
+     * resultado. Quem LÊ e VALIDA o arquivo é o C (config.c); a página só
+     * entrega os bytes e exibe a resposta. */
+
+    /* Apaga as mensagens do carregamento anterior. */
+    mostrarDiagnostico([], []);
+
+    /* files[0] é o arquivo escolhido no seletor (<input type="file">). O
+     * seletor é do sistema operacional: abre qualquer pasta ou pendrive. */
+    const arquivo = els.entradaArquivo.files[0];
+    if (!arquivo) {
+      mostrarDiagnostico(
+        ["Escolha um arquivo de configuração antes de carregar."],
+        [],
+      );
+      return;
+    }
+
+    /* O servidor recusa acima de 1 MB fechando a conexão, sem mensagem.
+     * Conferir aqui garante que o usuário veja o motivo. */
+    if (arquivo.size > 1024 * 1024) {
+      mostrarDiagnostico(["Arquivo grande demais (limite de 1 MB)."], []);
+      return;
+    }
+
+    /* Enquanto espera: botão desativado e com o texto "carregando...". O
+     * usuário vê que o programa está trabalhando, e não clica duas vezes. */
+    els.btnCarregar.disabled = true;
+    els.btnCarregar.textContent = "carregando...";
+
+    /* body: arquivo -> o navegador manda os BYTES do arquivo como estão no
+     * disco. O C recebe o conteúdo, nunca um caminho: por isso funciona de
+     * qualquer lugar, inclusive do pendrive (req. 3.3.4). */
+    const resp = await chamarApi("/api/carregar", {
+      method: "POST",
+      body: arquivo,
+    });
+    els.btnCarregar.disabled = false;
+    els.btnCarregar.textContent = "carregar";
+
+    /* Arquivo com erro: mostra a lista e PARA. A tela continua com a
+     * simulação anterior, que o servidor também manteve. */
+    if (resp.erro) {
+      mostrarDiagnostico(resp.erros || [], resp.avisos || []);
+      return;
+    }
+    /* Deu certo. Ainda pode haver avisos (ex.: tarefa aperiódica ignorada,
+     * req. 4.4). O "|| []" cobre a resposta sem esse campo. */
+    mostrarDiagnostico([], resp.avisos || []);
+    /* Liga os botões ANTES: aplicarNovoEstado desliga depois os que não
+     * fazem sentido (mesma ordem de aoAbrirPagina). */
+    definirControlesHabilitados(true);
+    aplicarNovoEstado(resp);
   }
 
   function mostrarDiagnostico(erros, avisos) {
-    /* TODO: popular #lista-erros e #lista-avisos com um <li> por mensagem
-     * (usar .textContent, nunca innerHTML, pra não injetar HTML vindo do
-     * arquivo de config do usuário) e mostrar/esconder #area-diagnostico
-     * (hidden = erros.length === 0 && avisos.length === 0). Lembrar de
-     * limpar (innerHTML = '') as listas antes de repopular, senão
-     * mensagens antigas ficam acumulando a cada carregar(). */
+    /* Põe na tela as mensagens de erro e de aviso, um item por mensagem.
+     * Chamar com duas listas vazias limpa e esconde a área. */
+
+    /* Esvazia primeiro, senão as mensagens antigas se acumulam. */
+    els.listaErros.innerHTML = "";
+    els.listaAvisos.innerHTML = "";
+    for (const msg of erros) {
+      const li = document.createElement("li");
+      /* textContent, NUNCA innerHTML: a mensagem traz pedaços do arquivo do
+       * usuário. Com innerHTML, um "<script>" escrito no arquivo seria
+       * executado pela página; com textContent vira só texto. */
+      li.textContent = msg;
+      els.listaErros.appendChild(li);
+    }
+
+    for (const msg of avisos) {
+      const li = document.createElement("li");
+      li.textContent = msg;
+      els.listaAvisos.appendChild(li);
+    }
+    /* Sem nenhuma mensagem, a área inteira some. */
+    els.areaDiagnostico.hidden = erros.length === 0 && avisos.length === 0;
   }
 
   async function aoAvancar() {
@@ -180,39 +255,93 @@
   /* ------------------------- aplicar estado recebido ------------------------ */
 
   function aplicarNovoEstado(estado) {
-    /* TODO: app.atual = estado; se estado for falsy, retornar cedo.
-     * Depois:
-     *   - atualizar o cabeçalho (#info-algoritmo/#info-quantum/
-     *     #info-cpus/#info-tick/#info-estado-sim, este último tipo
-     *     "concluída" vs "em execução") e #texto-ultimo-evento.
-     *   - atualizarTabelaCpus(estado) e atualizarTabelaTarefas(estado).
-     *   - atualizarGantt().
-     *   - habilitar/desabilitar botões: retroceder só faz sentido se
-     *     estado.tick > 0; avançar/executar-tudo só fazem sentido se
-     *     !estado.terminada.
-     * Se o painel do inspetor estiver aberto (app.tarefaSelecionada !=
-     * null) pra uma tarefa que ainda existe no novo estado, considere
-     * também atualizar o que está mostrado lá. */
+    /* Redesenha a tela a partir de um Estado que veio do servidor. TODA
+     * rota devolve o estado novo e todas passam por aqui: a página não
+     * calcula nada da simulação, só mostra o que o C mandou.
+     *
+     * TODO: se o inspetor estiver aberto (app.tarefaSelecionada != null),
+     * atualizar também o que ele mostra. */
+
+    app.atual = estado;
+    if (!estado) return;
+
+    /* Cabeçalho. O rótulo vai junto ("algoritmo: RM") porque textContent
+     * troca o texto INTEIRO do elemento. */
+    els.infoAlgoritmo.textContent = "algoritmo: " + estado.algoritmo;
+    els.infoQuantum.textContent = "quantum: " + estado.quantum;
+    els.infoCpus.textContent = "CPUs: " + estado.ncpus;
+    els.infoTick.textContent = "tick: " + estado.tick;
+    els.infoEstadoSim.textContent = estado.terminada
+      ? "concluída"
+      : "em execução";
+    els.textoUltimoEvento.textContent = estado.ultimo_evento || "--";
+
+    /* As tabelas estão prontas; atualizarGantt ainda é TODO. */
+
+    atualizarTabelaCpus(estado);
+    atualizarTabelaTarefas(estado);
+    atualizarGantt();
+
+    /* Botões que não fariam nada ficam desativados: não há para onde
+     * retroceder no tick 0, nem o que avançar depois do fim. */
+    els.btnRetroceder.disabled = !(estado.tick > 0);
+    els.btnAvancar.disabled = estado.terminada;
+    els.btnExecutarTudo.disabled = estado.terminada;
   }
 
   function definirControlesHabilitados(ligado) {
-    /* TODO: ligar/desligar btnAvancar/btnExecutarTudo/btnExportarSvg
-     * conforme 'ligado'; btnRetroceder começa desabilitado e é
-     * aplicarNovoEstado quem liga, quando estado.tick > 0. */
+    /* Liga ou desliga os botões que só servem com uma simulação carregada.
+     * No HTML eles começam desativados (atributo "disabled").
+     * "retroceder" fica de fora: quem cuida dele é aplicarNovoEstado, porque
+     * depende do tick (no tick 0 não há para onde voltar). */
+    els.btnAvancar.disabled = !ligado;
+    els.btnExecutarTudo.disabled = !ligado;
+    els.btnExportarSvg.disabled = !ligado;
+  }
+
+  /* Cria uma célula <td> com um texto e a pendura na linha <tr>. Usada pelas
+   * duas tabelas. textContent e não innerHTML, pelo mesmo motivo de
+   * mostrarDiagnostico: o texto nunca é interpretado como HTML. */
+  function celula(tr, texto) {
+    const td = document.createElement('td');
+    td.textContent = texto;
+    tr.appendChild(td);
   }
 
   function atualizarTabelaCpus(estado) {
-    /* TODO: reconstruir #tabela-cpus tbody (limpar com innerHTML = '' e
-     * recriar): uma <tr> por CPU em estado.cpus, com <td> pra
-     * id/tarefa (mostrar "desligada" se tarefa === -1)/ticks_desligada. */
+    /* Tabela de CPUs: uma linha por processador, na ordem que o C mandou.
+     * A tabela é REFEITA inteira a cada estado novo (esvazia e recria): é
+     * mais simples do que descobrir o que mudou, e são poucas linhas. */
+    els.tabelaCpusBody.innerHTML = '';
+    for (const cpu of estado.cpus) {
+      const tr = document.createElement('tr');
+      celula(tr, cpu.id);
+      /* O C manda o ID da tarefa, ou -1 se a CPU não tem o que executar.
+       * Req. 1.2: CPU sem tarefa é DESLIGADA, e o usuário precisa ver isso
+       * e por quanto tempo (a coluna seguinte). */
+      celula(tr, cpu.tarefa === -1 ? 'desligada' : cpu.tarefa);
+      celula(tr, cpu.ticks_desligada);
+      els.tabelaCpusBody.appendChild(tr);
+    }
   }
 
   function atualizarTabelaTarefas(estado) {
-    /* TODO: reconstruir #tabela-tarefas tbody: uma <tr> clicável por
-     * tarefa em estado.tarefas (id/estado/exec_restante/ativacoes/
-     * prazo), com um listener de click que chama abrirInspetor(t.id).
-     * Com o arquivo do professor (~190 tarefas) a tabela fica longa:
-     * normal, o painel lateral rola. */
+    /* Tabela de tarefas: uma linha por tarefa, com o que o TCB guarda
+     * dela neste tick (req. 1.5.1: examinar cada tarefa no passo a passo).
+     * Com ~190 tarefas a tabela fica longa; o painel lateral rola. */
+    els.tabelaTarefasBody.innerHTML = '';
+    for (const tarefa of estado.tarefas) {
+      const tr = document.createElement('tr');
+      /* Clicar na linha abre o painel de edição daquela tarefa. A função
+       * entre "() =>" só roda no clique, e lembra de qual tarefa é. */
+      tr.addEventListener('click', () => abrirInspetor(tarefa.id));
+      celula(tr, tarefa.id);
+      celula(tr, tarefa.estado);
+      celula(tr, tarefa.exec_restante);
+      celula(tr, tarefa.ativacoes);
+      celula(tr, tarefa.prazo);
+      els.tabelaTarefasBody.appendChild(tr);
+    }
   }
 
   /* --------------------------------- gantt --------------------------------- */

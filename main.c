@@ -260,6 +260,8 @@ static void teste_config(void)
     assert(e.tarefas[1].ingresso == 1 && e.tarefas[1].duracao == 2);
     assert(e.tarefas[1].prazo == 5);                    /* vazio = periodo */
     assert(e.tarefas[0].cpu == -1 && e.tarefas[0].estado == EST_INATIVA);
+    /* O aviso da aperiodica cita o 0, porque o 0 esta escrito no arquivo. */
+    assert(strstr(d.avisos[0], "(periodo 0)") != NULL);
     assert(e.cpus[1].id == 1 && e.cpus[1].tarefa == -1);
     estado_liberar(&e);
 
@@ -268,6 +270,14 @@ static void teste_config(void)
     assert(config_carregar_texto(";;\n7;;0;1;4", &e, &d) == 1);
     assert(strcmp(e.algoritmo, PADRAO_ALGORITMO) == 0);
     assert(e.quantum == PADRAO_QUANTUM && e.ncpus == PADRAO_CPUS);
+    estado_liberar(&e);
+
+    /* Periodo em branco: vale o padrao 0, a tarefa e ignorada, e o aviso
+     * diz que o 0 veio do padrao (o usuario nao escreveu 0 no arquivo). */
+    memset(&d, 0, sizeof d);
+    assert(config_carregar_texto("rm;2;1\n1;;0;1;5;5\n2;;0;1;;", &e, &d) == 1);
+    assert(e.ntarefas == 1 && d.n_avisos == 1);
+    assert(strstr(d.avisos[0], "periodo nao informado") != NULL);
     estado_liberar(&e);
 
     /* Arquivo ruim: TODOS os erros sao reportados de uma vez (cor, duracao,
@@ -560,6 +570,37 @@ static void teste_estado_json(void)
     assert(estado_json_atual(&s, pequeno, sizeof pequeno) == -1);
     assert(pequeno[0] == '\0');
     sim_liberar(&s);
+
+    /* Avisos do carregamento (resposta de /api/carregar). A tarefa 2 tem
+     * periodo 0: e aperiodica, fica de fora e gera um aviso (req. 4.4). O
+     * carregamento e feito a mao, sem iniciar_de_texto, para o teste ficar
+     * com o Diagnostico em maos. */
+    {
+        static Diagnostico d;
+        Estado e;
+
+        memset(&d, 0, sizeof d);
+        memset(&s, 0, sizeof s);
+        assert(config_carregar_texto("rm;2;1\n1;;0;1;5;5\n2;;0;1;0;0", &e, &d) == 1);
+        assert(sim_iniciar(&s, &e, &d) == 1);
+        estado_liberar(&e);
+        assert(d.n_avisos >= 1);
+
+        /* Com o diagnostico: o campo vem no FIM, com pelo menos um texto, e
+         * o JSON continua fechando certo. */
+        assert(estado_json_com_avisos(&s, &d, buf, sizeof buf) == (int)strlen(buf));
+        assert(strstr(buf, "],\"avisos\":[\"") != NULL);
+        assert(buf[strlen(buf) - 2] == ']' && buf[strlen(buf) - 1] == '}');
+        /* Uma vez so: nao pode repetir a cada tarefa. */
+        assert(strstr(strstr(buf, "\"avisos\"") + 1, "\"avisos\"") == NULL);
+        /* So a tarefa periodica entrou. */
+        assert(strstr(buf, "{\"id\":1,") != NULL && strstr(buf, "{\"id\":2,") == NULL);
+
+        /* Sem diagnostico (as outras rotas): o campo nem aparece. */
+        assert(estado_json_atual(&s, buf, sizeof buf) > 0);
+        assert(strstr(buf, "\"avisos\"") == NULL);
+        sim_liberar(&s);
+    }
 
     printf("autoteste: estado em JSON ... ok\n");
 }

@@ -30,4 +30,11 @@ int estado_json_atual(const Simulacao *s, char *buf, size_t tam);
  * "ultimo_evento" e "eventos" em estado_json_atual. */
 int diagnostico_json(const Diagnostico *d, char *buf, size_t tam);
 
+/* estado_json_atual mais o campo "avisos":[...] no fim, tirado de d. Usada
+ * na resposta de /api/carregar: carregar com sucesso tambem pode gerar
+ * avisos (ex. tarefa aperiodica ignorada, req. 4.4) e eles precisam chegar
+ * ao usuario. Com d == NULL o campo nao aparece. */
+int estado_json_com_avisos(const Simulacao *sim, const Diagnostico *d,
+                           char *buf, size_t tam);
+
 #endif

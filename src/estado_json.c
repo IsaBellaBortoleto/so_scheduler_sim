@@ -174,7 +174,8 @@ static void sai_tarefa(Saida *s, const TCB *t)
  * Antes de carregar um arquivo a Simulacao está zerada (ver main.c): o
  * resultado é um Estado válido com "carregado":false e as listas vazias, sem
  * precisar de caso especial. */
-int estado_json_atual(const Simulacao *sim, char *buf, size_t tam)
+int estado_json_com_avisos(const Simulacao *sim, const Diagnostico *d,
+                           char *buf, size_t tam)
 {
     Saida s = { buf, tam, 0, 0 };
     const Estado *e = &sim->atual;
@@ -204,7 +205,17 @@ int estado_json_atual(const Simulacao *sim, char *buf, size_t tam)
             sai(&s, ",");
         sai_tarefa(&s, &e->tarefas[i]);
     }
-    sai(&s, "]}");
+    sai(&s, "]"); /* fecha só a lista de tarefas */
+
+    /* Os avisos entram DEPOIS da lista de tarefas e uma vez só, por isso
+     * ficam fora do laço. d == NULL quer dizer "sem avisos nesta resposta":
+     * o campo nem aparece. */
+    if (d != NULL)
+    {
+        sai(&s, ",\"avisos\":");
+        sai_lista(&s, d->avisos, d->n_avisos);
+    }
+    sai(&s, "}"); /* fecha o objeto */
 
     if (s.estourou)
     {
@@ -214,4 +225,11 @@ int estado_json_atual(const Simulacao *sim, char *buf, size_t tam)
         return -1;
     }
     return (int)s.pos;
+}
+
+/* O estado sem avisos: a resposta de todas as rotas, menos /api/carregar.
+ * Só repassa para a função acima, para existir UM lugar que monta o JSON. */
+int estado_json_atual(const Simulacao *sim, char *buf, size_t tam)
+{
+    return estado_json_com_avisos(sim, NULL, buf, tam);
 }

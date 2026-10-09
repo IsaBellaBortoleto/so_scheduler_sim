@@ -321,24 +321,68 @@ int sim_avancar(Simulacao *s)
     return 1;
 }
 
+/* RETROCEDER (req. 1.5.2) — volta a simulação um tick.
+ *
+ * O histórico guarda uma FOTO do estado inteiro por tick, e a última foto é
+ * sempre a do tick atual:
+ *     historico: [tick 0] [tick 1] [tick 2] [tick 3]    n_hist = 4
+ * Retroceder = jogar fora a última foto e restaurar a anterior. O relógio
+ * volta junto, porque o número do tick faz parte do estado copiado.
+ *
+ * Devolve 1 se voltou, 0 se já estava no tick 0. */
 int sim_retroceder(Simulacao *s)
 {
-    /* TODO: se n_hist < 2, devolver 0 (não há pra onde voltar -- o
-     * primeiro snapshot é o tick 0). Senão: estado_liberar no último
-     * snapshot do histórico (o do tick atual, que vamos descartar),
-     * n_hist--, estado_liberar em s->atual, e então s->atual =
-     * estado_clonar(&historico[n_hist-1]) (restaura o snapshot anterior).
-     * Lembrar de zerar terminada=0 (retroceder sempre reabre a
-     * simulação, mesmo que ela já tivesse terminado). Devolver 1. */
-    (void)s;
-    return 0;
+    /* Com uma foto só (a do tick 0) não há para onde voltar. É isto que
+     * impede a simulação de ir para antes do início. */
+    if (s->n_hist < 2)
+        return 0;
+
+    /* Descarta a foto do tick atual. Se o usuário avançar de novo, ela é
+     * recalculada; assim nunca sobra no histórico um "futuro" que não vale
+     * mais (ex.: depois de editar uma tarefa). */
+    estado_liberar(&s->historico[s->n_hist - 1]);
+    s->n_hist--;
+
+    /* Libera o estado atual antes de trocá-lo: cada Estado tem vetores
+     * alocados (tarefas e CPUs), e sem isto a memória vazaria a cada clique. */
+    estado_liberar(&s->atual);
+
+    /* CLONAR, e não só atribuir: a atribuição copiaria os ponteiros, e o
+     * estado atual passaria a dividir os vetores com a foto guardada. O
+     * próximo avanço estragaria o histórico. */
+    s->atual = estado_clonar(&s->historico[s->n_hist - 1]);
+
+    /* Voltou um tick: mesmo que a simulação tivesse acabado, não acabou mais. */
+    s->terminada = 0;
+    return 1;
 }
 
+/* EXECUÇÃO COMPLETA (req. 1.5, modo b) — roda até o fim, sem parar a cada
+ * passo. É só repetir o passo a passo: cada volta do laço é um sim_avancar.
+ *
+ * Os ticks intermediários continuam indo para o histórico, mesmo sem
+ * aparecer na tela (req. 1.5.3): o Gantt final é desenhado a partir dele, e
+ * o usuário pode retroceder depois de executar tudo. */
 void sim_executar_tudo(Simulacao *s)
 {
-    /* TODO: while (!s->terminada) sim_avancar(s); (parar se sim_avancar
-     * devolver 0 por algum motivo além de 'terminada', pra não travar). */
-    (void)s;
+    /* A condição do laço é o RETORNO de sim_avancar: ela devolve 0 quando
+     * não executou nenhum tick. Assim o laço nunca gira parado, o que
+     * poderia acontecer com "while (!s->terminada)". */
+    while (sim_avancar(s))
+    {
+        /* Rede de segurança: um conjunto de tarefas que nunca termina (ou
+         * um bug) pararia aqui, em vez de travar o programa. O usuário é
+         * avisado pelo "último evento" de que a simulação foi CORTADA.
+         * O "!s->terminada" evita o aviso falso quando a simulação acaba
+         * sozinha exatamente no tick do limite. */
+        if (s->atual.tick >= MAX_TICKS && !s->terminada)
+        {
+            s->terminada = 1;
+            snprintf(s->ultimo_evento, sizeof s->ultimo_evento,
+                     "simulacao interrompida no limite de %d ticks", MAX_TICKS);
+            break;
+        }
+    }
 }
 
 int sim_editar_tarefa(Simulacao *s, int id_tarefa, const char *campo,
@@ -375,5 +419,13 @@ void sim_liberar(Simulacao *s)
     /* TODO: estado_liberar em cada entrada de s->historico, depois
      * free(s->historico) e zerar n_hist/cap_hist. Por fim,
      * estado_liberar(&s->atual). */
-    (void)s;
+    for (int i = 0; i < s->n_hist; i++)
+    {
+        estado_liberar(&s->historico[i]);
+    }
+    free(s->historico);
+    s->historico = NULL;
+    s->n_hist = 0;
+    s->cap_hist = 0;
+    estado_liberar(&s->atual);
 }
