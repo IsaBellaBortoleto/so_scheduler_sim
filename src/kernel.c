@@ -152,7 +152,84 @@ static void escalonar(Simulacao *s)
      *    e->quantum (reinicia o quantum a cada nova atribuição).
      * 6) CPUs que sobraram sem ninguém: cpus[c].ticks_desligada++
      *    (requisito 1.2: acumular o período ocioso pro relatório final). */
-    (void)s;
+    Estado *e = &s->atual;
+
+    /* 1) Montar a lista de candidatos */
+    int candidatos[e->ntarefas];
+    int n_candidatos = 0;
+    
+    for (int i = 0; i < e->ntarefas; i++)
+    {
+        if (e->tarefas[i].estado == EST_PRONTA || e->tarefas[i].estado == EST_EXECUTANDO)
+        {
+            candidatos[n_candidatos] = i;
+            n_candidatos++;
+        }
+    }
+
+    /* 2) Ordenar a lista usando o escalonador atual */
+    if (n_candidatos > 0 && s->esc != NULL) 
+    {
+        escalonador_ordenar(s->esc, e, candidatos, n_candidatos);
+    }
+    
+    /* 3) Determinar quantos vencedores teremos (menor entre candidatos e cpus) */
+    int vencedores = (n_candidatos < e->ncpus) ? n_candidatos : e->ncpus;
+
+    /* 4) Preempção: tirar da CPU quem estava EXECUTANDO mas perdeu a vaga */
+    for (int i = 0; i < e->ntarefas; i++)
+    {
+        if (e->tarefas[i].estado == EST_EXECUTANDO)
+        {
+            int continua = 0;
+            for (int j = 0; j < vencedores; j++)
+            {
+                if (candidatos[j] == i)
+                {
+                    continua = 1;
+                    break;
+                }
+            }
+            
+            if (continua == 0)
+            {
+                // Libera a CPU e volta a tarefa para a fila
+                e->cpus[e->tarefas[i].cpu].tarefa = -1;
+                e->tarefas[i].cpu = -1;
+                e->tarefas[i].estado = EST_PRONTA;
+            }
+        }
+    } 
+
+    /* 5) Acomodar os vencedores que ainda não têm CPU */
+    for (int k = 0; k < vencedores; k++)
+    {
+        int id = candidatos[k];
+        if (e->tarefas[id].cpu == -1)
+        {
+            // Procura a primeira CPU livre
+            for (int c = 0; c < e->ncpus; c++)
+            {
+                if (e->cpus[c].tarefa == -1) 
+                {
+                    e->tarefas[id].cpu = c;
+                    e->cpus[c].tarefa = id;    
+                    e->tarefas[id].estado = EST_EXECUTANDO; 
+                    e->tarefas[id].quantum_restante = e->quantum;
+                    break;                   
+                }
+            }
+        }
+    }
+
+    /* 6) Contabilizar a ociosidade das CPUs que sobraram sem ninguém */
+    for (int c = 0; c < e->ncpus; c++)
+    {
+        if (e->cpus[c].tarefa == -1)
+        {
+            e->cpus[c].ticks_desligada++;
+        }
+    }
 }
 
 /* EXECUÇÃO — consome uma unidade de tempo de cada tarefa que está na CPU,
