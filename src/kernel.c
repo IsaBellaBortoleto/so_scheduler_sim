@@ -300,6 +300,9 @@ static void executar(Simulacao *s)
     //(void)s;
 }
 
+/*
+* REQUISITO: 2.6: Implementar a verificação de estouro de prazo (deadline) por tarefa
+*/
 static void verificar_prazos(Simulacao *s)
 {
     /* TODO: para cada tarefa que não seja EST_INATIVA/EST_CONCLUIDA, se
