@@ -487,7 +487,50 @@ int sim_editar_tarefa(Simulacao *s, int id_tarefa, const char *campo,
      *    mesmo padrão (validar -> aplicar -> devolver 1, ou motivo claro
      *    -> devolver 0).
      * 3) campo desconhecido: motivo claro e devolver 0. */
-    (void)s;
+    if (sim_indice_por_id(s,id_tarefa) == -1)
+    {
+        snprintf(motivo,motivo_tam,"O id %d não está no registro",id_tarefa);
+        return 0;
+    }
+    int indice = sim_indice_por_id(s,id_tarefa);
+    TCB *tarefa = &s->atual.tarefas[indice];
+    
+    if (strcmp(campo,"estado") == 0)
+    {
+        
+    }else if(strcmp(campo, "exec_restante") == 0)
+    {
+        if(atoi(valor) < 0 && atoi(valor) < tarefa->duracao)
+        {
+            tarefa->exec_restante = atoi(valor);
+            return 1;
+        }else
+        {
+            snprintf(motivo,motivo_tam,"O valor %d não cumpre os pre requisitos.",atoi(valor));
+            return 0;
+        }
+    }else if(strcmp(campo,"prazo") == 0)
+    {
+        if(atoi(valor) > 0)
+        {
+            tarefa->prazo = atoi(valor);
+            tarefa->deadline_abs = executando->tick + tarefa->prazo;
+            return 1;
+            
+        }else
+        {
+            snprintf(motivo,motivo_tam,"O valor %d não cumpre os pre requisitos",atoi(valor));
+            return 0;        
+        }
+
+    }else
+    {
+
+    }
+    
+    
+    
+     (void)s;
     (void)id_tarefa;
     (void)campo;
     (void)valor;
