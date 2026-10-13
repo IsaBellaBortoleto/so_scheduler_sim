@@ -386,7 +386,8 @@ int sim_avancar(Simulacao *s)
      * 4) checar todas_concluidas e ajustar terminada.
      * 5) snapshot(s).
      * 6) devolver 1. */
-    if(s->terminada == 0)
+    // Se a simulação já está encerrada, interrompe o avanço sem processar o tick
+     if(s->terminada)
     {
         return 0;
     } 
