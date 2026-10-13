@@ -351,11 +351,30 @@ static void atender(Simulacao *sim, soquete_t c)
         /* era um arquivo da página; servir_recurso já respondeu */
     }
     else if (get && strcmp(p.caminho, "/api/estado") == 0)
+    {
         responder_estado(sim, c, NULL);
-    else if (post && strcmp(p.caminho, "/api/carregar") == 0)
+    }else if (post && strcmp(p.caminho, "/api/carregar") == 0)
+    {
         rota_carregar(sim, c, &p);
-    else
+    }else if (post && strcmp(p.caminho, "/api/avancar") == 0)
+    {
+        sim_avancar(sim); // Executa um tick do relógio
+        responder_estado(sim, c, NULL); // Devolve o estado atualizado para a interface
+    }
+    else if (post && strcmp(p.caminho, "/api/retroceder") == 0)
+    {
+        sim_retroceder(sim); // Volta no tempo
+        responder_estado(sim, c, NULL); // Devolve o estado atualizado para a interface
+    }
+    else if (post && strcmp(p.caminho, "/api/executar_tudo") == 0)
+    {
+        sim_executar_tudo(sim); // Roda a simulação inteira de uma vez
+        responder_estado(sim, c, NULL); // Devolve o resultado final para a interface
+    }else
+    {
         responder_texto(c, "404 Not Found", "rota inexistente");
+    }
+        
 
     free(p.corpo); /* um só free, no fim: vale para todas as rotas */
 }
