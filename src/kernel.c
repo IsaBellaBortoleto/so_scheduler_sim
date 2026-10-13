@@ -75,9 +75,6 @@ static void snapshot(Simulacao *s)
     s->historico[s->n_hist] = estado_clonar(&s->atual);
     s->n_hist++;
     
-    
-
-    //(void)s;
 }
 
 /* ATIVAÇÃO — uma tarefa periódica INATIVA vira PRONTA quando o tick atual
@@ -403,9 +400,6 @@ int sim_avancar(Simulacao *s)
     escalonar(s);
     s->terminada = todas_concluidas(&s->atual);
     snapshot(s);
-    
-
-    /*(void)s;*/
     return 1;
 }
 
