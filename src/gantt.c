@@ -53,14 +53,33 @@ static int marca_em(const Simulacao *s, int t, int i)
     const TCB *agora = &s->historico[t].tarefas[i];
     const TCB *antes = (t > 0) ? &s->historico[t - 1].tarefas[i] : NULL;
     int marcas = 0;
-    if (agora->perdeu_prazo && (antes == NULL || !antes->perdeu_prazo))
+    int ativa = agora->estado == EST_PRONTA || agora->estado == EST_EXECUTANDO ||
+                agora->estado == EST_SUSPENSA;
+
+    /* PRAZO (a): a execução em andamento. O X vai no tick em que o prazo
+     * dela vence. A passagem de 0 para 1 cobre os outros casos (ex.: uma
+     * edição que diminuiu o prazo). */
+    if (agora->perdeu_prazo &&
+        (agora->deadline_abs == t || antes == NULL || !antes->perdeu_prazo))
         marcas |= 1 << MARCA_PRAZO;
+
+    /* PRAZO (b): execuções ainda na fila. A j-ésima chegou j períodos
+     * depois da atual, e vence 'prazo' ticks depois disso. Sem esta regra,
+     * uma tarefa atrasada mostraria um X só, por mais execuções que
+     * perdesse. */
+    for (int j = 1; j <= agora->pendentes; j++)
+        if (agora->ativacao + j * agora->periodo + agora->prazo == t)
+            marcas |= 1 << MARCA_PRAZO;
+
     if (antes != NULL && agora->ativacoes > antes->ativacoes)
         marcas |= 1 << MARCA_TERMINO;
-    if ((agora->estado == EST_PRONTA || agora->estado == EST_EXECUTANDO ||
-         agora->estado == EST_SUSPENSA) &&
-        agora->ativacao == t)
+
+    /* CHEGADA: uma execução nova começou agora, ou chegou e foi para a
+     * fila porque a anterior ainda não tinha terminado (pendentes subiu). */
+    if ((ativa && agora->ativacao == t) ||
+        (antes != NULL && agora->pendentes > antes->pendentes))
         marcas |= 1 << MARCA_CHEGADA;
+
     if (agora->sorteada && agora->estado == EST_EXECUTANDO &&
         (antes == NULL || antes->estado != EST_EXECUTANDO))
         marcas |= 1 << MARCA_SORTEIO;

@@ -37,6 +37,8 @@ typedef struct {
     int  perdeu_prazo;     
     int  cpu;              
     int  sorteada;          
+    int  pendentes;   /* execuções que chegaram enquanto a anterior ainda não
+                       * tinha terminado; esperam a vez, em ordem de chegada */
 } TCB;
 
 
@@ -52,7 +54,7 @@ typedef struct {
     int  quantum;         
     int  ncpus;
     int  ntarefas;
-    int  tick;            
+    int  tick;
     TCB *tarefas;       
     CPU *cpus;      
 } Estado;

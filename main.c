@@ -510,6 +510,31 @@ static void teste_prazos(void)
     } while (sim_avancar(&s));
     sim_liberar(&s);
 
+    /* Nenhuma chegada some (execucoes pendentes). Carga de 120% em 1 CPU:
+     * a T3 ainda esta atrasada quando chega o proximo periodo dela. Cada
+     * chegada tem de estar em UM de tres lugares: ja terminou (ativacoes),
+     * esta em andamento (1, se ativa) ou esta na fila (pendentes). Por isso
+     * a conta fecha em TODO tick; se uma chegada fosse descartada, o lado
+     * direito ficaria menor. Tarefa CONCLUIDA fica de fora: depois das 10
+     * execucoes as chegadas deixam de contar. */
+    iniciar_de_texto(&s, "RM;0;1\n1;;0;2;4;4\n2;;0;2;5;5\n3;;0;3;10;10");
+    do {
+        for (i = 0; i < s.atual.ntarefas; i++) {
+            const TCB *x = &s.atual.tarefas[i];
+            int chegadas, ativa;
+
+            if (s.atual.tick < x->ingresso || x->estado == EST_CONCLUIDA)
+                continue;
+            chegadas = (s.atual.tick - x->ingresso) / x->periodo + 1;
+            ativa = x->estado == EST_PRONTA || x->estado == EST_EXECUTANDO ||
+                    x->estado == EST_SUSPENSA;
+            assert(chegadas == x->ativacoes + ativa + x->pendentes);
+        }
+    } while (sim_avancar(&s));
+    /* E a T3 (posicao 2) fez as 10 execucoes, nenhuma perdida. */
+    assert(s.atual.tarefas[2].ativacoes == 10);
+    sim_liberar(&s);
+
     printf("autoteste: prazos e simulacao completa ... ok\n");
 }
 

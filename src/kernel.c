@@ -96,12 +96,16 @@ static void ativar(Simulacao *s)
     for (int i = 0; i < executando->ntarefas; i++)
     {
         TCB *tarefa = &executando->tarefas[i];
-        if (tarefa->estado == EST_INATIVA && tarefa->periodo > 0 &&
-            executando->tick >= tarefa->ingresso &&
-            (executando->tick - tarefa->ingresso) % tarefa->periodo == 0)
-        {
-            ativar_tarefa(tarefa, executando->tick);
-        }
+        int chegou = tarefa->periodo > 0 &&
+                     executando->tick >= tarefa->ingresso &&
+                     (executando->tick - tarefa->ingresso) % tarefa->periodo == 0;
+
+        if (!chegou)
+            continue;
+        if (tarefa->estado == EST_INATIVA)
+            ativar_tarefa(tarefa, executando->tick); /* livre: começa já */
+        else if (tarefa->estado != EST_CONCLUIDA)
+            tarefa->pendentes++; /* ocupada: espera a vez */
     }
 }
 
@@ -217,48 +221,49 @@ static void executar(Simulacao *s)
     for(int i = 0; i < executando->ntarefas; i++)
     {
          TCB *tarefa = &executando->tarefas[i];
-        if(tarefa->estado == EST_EXECUTANDO)
-        {
-            tarefa->exec_restante--;
-            if(executando->quantum > 0 && tarefa->quantum_restante > 0)
-            {
-                tarefa->quantum_restante--;
-
-            }
-            /* (a) Terminou esta execução: solta a CPU e conta mais uma. Na
-             * 10a vira CONCLUIDA (req. 4.4); antes disso volta a INATIVA e
-             * espera a próxima chegada do período. */
-            if(tarefa->exec_restante<=0)
-            {
-                executando->cpus[tarefa->cpu].tarefa=-1;
-                tarefa->cpu=-1;
-                tarefa->quantum_restante=0;
-                tarefa->ativacoes++;
-                
-                if(tarefa->ativacoes>=MAX_ATIVACOES)
-                {
-                    tarefa->estado=EST_CONCLUIDA;
-                
-
-                }else
-                {
-                    tarefa->estado = EST_INATIVA;
-                }
-            }
-            /* (b) Quantum esgotado com trabalho por fazer: devolve a CPU e
-             * volta para a fila. quantum 0 no arquivo = sem limite, por
-             * isso o "quantum > 0". */
-            else if(executando->quantum >0 && tarefa->quantum_restante<=0)
-            {
-                executando->cpus[tarefa->cpu].tarefa=-1;
-                tarefa->cpu=-1;
-                tarefa->estado = EST_PRONTA;
-
-            }
-
-        }
-
-
+         if (tarefa->estado == EST_EXECUTANDO)
+         {
+             tarefa->exec_restante--;
+             if (executando->quantum > 0 && tarefa->quantum_restante > 0)
+             {
+                 tarefa->quantum_restante--;
+             }
+             /* (a) Terminou esta execução: solta a CPU e conta mais uma. Na
+              * 10a vira CONCLUIDA (req. 4.4); antes disso volta a INATIVA e
+              * espera a próxima chegada do período. */
+             if (tarefa->exec_restante <= 0)
+             {
+                 executando->cpus[tarefa->cpu].tarefa = -1;
+                 tarefa->cpu = -1;
+                 tarefa->quantum_restante = 0;
+                 tarefa->ativacoes++;
+                 if (tarefa->ativacoes >= MAX_ATIVACOES)
+                 {
+                     tarefa->estado = EST_CONCLUIDA;
+                     tarefa->pendentes = 0; /* fez as 10: acabou */
+                 }
+                 else if (tarefa->pendentes > 0)
+                 {
+                     /* Já havia outra execução esperando: ela chegou um período depois
+                      * da que acabou de terminar, e o prazo dela conta DE LÁ. */
+                     tarefa->pendentes--;
+                     ativar_tarefa(tarefa, tarefa->ativacao + tarefa->periodo);
+                 }
+                 else
+                 {
+                     tarefa->estado = EST_INATIVA;
+                 }
+             }
+             /* (b) Quantum esgotado com trabalho por fazer: devolve a CPU e
+              * volta para a fila. quantum 0 no arquivo = sem limite, por
+              * isso o "quantum > 0". */
+             else if (executando->quantum > 0 && tarefa->quantum_restante <= 0)
+             {
+                 executando->cpus[tarefa->cpu].tarefa = -1;
+                 tarefa->cpu = -1;
+                 tarefa->estado = EST_PRONTA;
+             }
+         }
     }
 }
 

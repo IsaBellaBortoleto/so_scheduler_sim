@@ -29,8 +29,10 @@ ARQUIVOS QUE DEVEM CARREGAR
                             SVG exportado com ~5,4 MB
 
 04_estouro_de_prazo.txt     carga de 120% em 1 CPU
-                            observado: termina no tick 123, com perda de
-                            prazo marcada (ver PONTO EM ABERTO abaixo)
+                            observado: termina no tick 93; a T3 recebe as
+                            10 chegadas (ticks 0, 10, ..., 90) e as 5
+                            primeiras execucoes perdem o prazo: um X em
+                            cada tick 10, 20, 30, 40 e 50
 
 05_sorteio.txt              empate em todos os criterios do 4.3
                             observado: 10 sorteios, estrela no Gantt
@@ -38,7 +40,8 @@ ARQUIVOS QUE DEVEM CARREGAR
 06_inanicao.txt             T1 e T2 de periodo curto quase nao deixam a T3
                             executar no RM
                             observado: T3 fica pronta (sem cor) por longos
-                            trechos e perde prazo
+                            trechos e perde o prazo no tick 12; termina no
+                            tick 111
 
 07_aperiodicas_misturadas.txt
                             observado: 2 avisos (periodo 0 e periodo em
@@ -70,17 +73,22 @@ erro_05_campos_invalidos.txt     os 4 erros de uma vez, cada um com a linha
 erro_06_id_repetido.txt          "linha 4: id 1 repetido"
 erro_07_so_aperiodicas.txt       erro + um aviso por tarefa ignorada
 erro_08_binario.txt              3000 bytes aleatorios (o "arquivo que nao e
-                                 texto"). Ver PONTO EM ABERTO abaixo.
+                                 texto"): "o arquivo escolhido nao e um
+                                 arquivo de texto; escolha o .txt de
+                                 configuracao" (conferido pelo servidor,
+                                 antes de chegar ao leitor do arquivo)
 
 
-PONTOS EM ABERTO (encontrados com estes arquivos)
--------------------------------------------------
+PROBLEMAS ENCONTRADOS COM ESTES ARQUIVOS (ja corrigidos)
+--------------------------------------------------------
 
-1. erro_08_binario.txt: e recusado, mas a mensagem mostra lixo (os bytes do
-   arquivo como se fossem o id de uma tarefa) em vez de dizer que o arquivo
-   nao e texto.
+1. erro_08_binario.txt: a mensagem mostrava os bytes do arquivo como se
+   fossem o id de uma tarefa. Corrigido no servidor (parece_texto, em
+   servidor.c), que recusa bytes de controle antes de ler o arquivo.
 
-2. 04_estouro_de_prazo.txt: quando uma tarefa ainda esta executando no
-   instante da proxima ativacao, essa ativacao e perdida (a T3, periodo 10,
-   foi ativada nos ticks 0, 40, 50... e nao em 10, 20 e 30). O Gantt mostra
-   um unico X de prazo perdido onde houve tres periodos sem conclusao.
+2. 04_estouro_de_prazo.txt: quando uma tarefa ainda estava executando no
+   instante da proxima ativacao, essa ativacao era DESCARTADA (a T3 era
+   ativada em 0, 40, 50... e nao em 10, 20, 30). Corrigido com o contador
+   'pendentes' do TCB: a chegada espera na fila e comeca assim que a
+   anterior termina, com o prazo contado da chegada. O autoteste
+   (teste_prazos) confere em todo tick que nenhuma chegada some.
