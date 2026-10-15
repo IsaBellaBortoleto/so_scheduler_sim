@@ -370,7 +370,11 @@ static void atender(Simulacao *sim, soquete_t c)
     {
         sim_executar_tudo(sim); // Roda a simulação inteira de uma vez
         responder_estado(sim, c, NULL); // Devolve o resultado final para a interface
-    }else
+    }else if (post && strcmp(p.caminho,"/api/editar") == 0)
+    {
+        rota_editar(sim, c, &p);
+    }
+    else
     {
         responder_texto(c, "404 Not Found", "rota inexistente");
     }
@@ -432,4 +436,14 @@ void servidor_abrir_navegador(int porta)
     /* Sem tratamento de erro: se o navegador não abrir, o endereço já está
      * impresso no terminal (main.c) e o usuário pode abrir à mão. */
     system(cmd);
+}
+
+static void rota_editar(Simulacao *sim, soquete_t c, const Pedido *p)
+{
+    int id_tarefa;
+    char campo[32];
+    char valor[64];
+
+    sscanf()
+
 }

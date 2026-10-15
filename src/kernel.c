@@ -487,56 +487,105 @@ int sim_editar_tarefa(Simulacao *s, int id_tarefa, const char *campo,
      *    mesmo padrão (validar -> aplicar -> devolver 1, ou motivo claro
      *    -> devolver 0).
      * 3) campo desconhecido: motivo claro e devolver 0. */
-    if (sim_indice_por_id(s,id_tarefa) == -1)
+
+    /* PASSO 1: Achar a tarefa pelo ID usando o estado atual */
+    int indice = sim_indice_por_id(&s->atual, id_tarefa);
+    if (indice == -1)
     {
-        snprintf(motivo,motivo_tam,"O id %d não está no registro",id_tarefa);
+        snprintf(motivo, motivo_tam, "O id %d nao esta no registro", id_tarefa);
         return 0;
     }
-    int indice = sim_indice_por_id(s,id_tarefa);
+
     TCB *tarefa = &s->atual.tarefas[indice];
-    
-    if (strcmp(campo,"estado") == 0)
+
+    /* PASSO 2: Roteamento - Campo ESTADO */
+    if (strcmp(campo, "estado") == 0)
     {
-        
-    }else if(strcmp(campo, "exec_restante") == 0)
-    {
-        if(atoi(valor) < 0 && atoi(valor) < tarefa->duracao)
+        /* Padronização case-insensitive (converte a entrada para MAIÚSCULAS) */
+        char valor_padrao[32];
+        int i = 0;
+        while (valor[i] != '\0' && i < (int)sizeof(valor_padrao) - 1)
         {
-            tarefa->exec_restante = atoi(valor);
-            return 1;
-        }else
+            valor_padrao[i] = toupper((unsigned char)valor[i]);
+            i++;
+        }
+        valor_padrao[i] = '\0';
+
+        /* Bloqueio de injeção direta na CPU */
+        if (strcmp(valor_padrao, "EXECUTANDO") == 0)
         {
-            snprintf(motivo,motivo_tam,"O valor %d não cumpre os pre requisitos.",atoi(valor));
+            snprintf(motivo, motivo_tam, "Nao e possivel forcar estado EXECUTANDO; mude para PRONTA.");
             return 0;
         }
-    }else if(strcmp(campo,"prazo") == 0)
-    {
-        if(atoi(valor) > 0)
+
+        /* Tradução de String para Enum */
+        int novo_estado = -1;
+        if (strcmp(valor_padrao, "PRONTA") == 0)         novo_estado = EST_PRONTA;
+        else if (strcmp(valor_padrao, "SUSPENSA") == 0)  novo_estado = EST_SUSPENSA;
+        else if (strcmp(valor_padrao, "INATIVA") == 0)   novo_estado = EST_INATIVA;
+        else if (strcmp(valor_padrao, "CONCLUIDA") == 0) novo_estado = EST_CONCLUIDA;
+        else
         {
-            tarefa->prazo = atoi(valor);
-            tarefa->deadline_abs = executando->tick + tarefa->prazo;
-            return 1;
-            
-        }else
-        {
-            snprintf(motivo,motivo_tam,"O valor %d não cumpre os pre requisitos",atoi(valor));
-            return 0;        
+            snprintf(motivo, motivo_tam, "O estado '%s' nao e valido.", valor);
+            return 0;
         }
 
-    }else
-    {
+        /* Limpeza da CPU se a tarefa estava executando (Mão dupla) */
+        if (tarefa->estado == EST_EXECUTANDO)
+        {
+            int cpu_atual = tarefa->cpu;
+            if (cpu_atual >= 0 && cpu_atual < s->atual.ncpus)
+            {
+                s->atual.cpus[cpu_atual].tarefa = -1; /* Esvazia a cadeira */
+            }
+            tarefa->cpu = -1; /* Tira a chave da mão da tarefa */
+        }
 
+        tarefa->estado = novo_estado;
+        return 1;
     }
-    
-    
-    
-     (void)s;
-    (void)id_tarefa;
-    (void)campo;
-    (void)valor;
-    (void)motivo;
-    (void)motivo_tam;
-    return 0;
+
+    /* PASSO 3: Roteamento - Campo EXEC_RESTANTE */
+    else if (strcmp(campo, "exec_restante") == 0)
+    {
+        int novo_exec = atoi(valor);
+        /* O tempo deve ser maior ou igual a zero E menor ou igual à duração total */
+        if (novo_exec >= 0 && novo_exec <= tarefa->duracao)
+        {
+            tarefa->exec_restante = novo_exec;
+            return 1;
+        }
+        else
+        {
+            snprintf(motivo, motivo_tam, "O valor %d nao cumpre os pre requisitos (deve ser entre 0 e %d).", novo_exec, tarefa->duracao);
+            return 0;
+        }
+    }
+
+    /* PASSO 4: Roteamento - Campo PRAZO */
+    else if (strcmp(campo, "prazo") == 0)
+    {
+        int novo_prazo = atoi(valor);
+        /* O prazo não pode ser negativo */
+        if (novo_prazo >= 0)
+        {
+            tarefa->prazo = novo_prazo;
+            tarefa->deadline_abs = tarefa->ativacao + novo_prazo; /* Recalcula com base na ativação */
+            return 1;
+        }
+        else
+        {
+            snprintf(motivo, motivo_tam, "O valor %d nao cumpre os pre requisitos (deve ser >= 0).", novo_prazo);
+            return 0;
+        }
+    }
+
+    /* PASSO 5: Campo Desconhecido */
+    else
+    {
+        snprintf(motivo, motivo_tam, "Campo '%s' nao existe ou nao permite edicao manual.", campo);
+        return 0;
+    }
 }
 
 /* LIBERAR — devolve ao sistema toda a memória da simulação e deixa 's'
