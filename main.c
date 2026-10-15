@@ -608,6 +608,42 @@ static void teste_gantt(void)
     remove("autoteste_gantt.svg");
     sim_liberar(&s);
 
+    /* Troca de algoritmo (req. 3.1): a linha tracejada aparece no grafico
+     * so quando ha troca. Sem troca, "stroke-dasharray" aparece UMA vez (o
+     * item da legenda); com troca, DUAS (legenda + linha), com o nome novo. */
+    {
+        static char svg2[1 << 16];
+        char m[200];
+        size_t n2;
+        int k;
+        FILE *g = fopen("autoteste_gantt2.svg", "w+b");
+
+        assert(g != NULL);
+        iniciar_de_texto(&s, "RM;0;2\n1;FF0000;0;2;6\n2;;1;3;8");
+        for (k = 0; k < 5; k++)
+            assert(sim_avancar(&s));
+        assert(sim_trocar_algoritmo(&s, "edf", m, sizeof m));
+        while (sim_avancar(&s))
+            ;
+        assert(gantt_svg(&s, g, 0, s.n_hist - 1) == 1);
+        rewind(g);
+        n2 = fread(svg2, 1, sizeof svg2 - 1, g);
+        svg2[n2] = '\0';
+        assert(strstr(svg2, ">EDF<") != NULL);
+        assert(strstr(strstr(svg2, "stroke-dasharray") + 1, "stroke-dasharray") != NULL);
+        /* Janela que comeca DEPOIS da troca: nada a marcar, so a legenda. */
+        rewind(g);
+        assert(gantt_svg(&s, g, 8, s.n_hist - 1) == 1);
+        n2 = (size_t)ftell(g);
+        rewind(g);
+        n2 = fread(svg2, 1, n2, g);
+        svg2[n2] = '\0';
+        assert(strstr(strstr(svg2, "stroke-dasharray") + 1, "stroke-dasharray") == NULL);
+        fclose(g);
+        remove("autoteste_gantt2.svg");
+        sim_liberar(&s);
+    }
+
     printf("autoteste: gantt_svg ... ok\n");
 }
 

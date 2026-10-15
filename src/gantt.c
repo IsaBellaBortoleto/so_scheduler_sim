@@ -180,8 +180,9 @@ int gantt_svg(const Simulacao *s, FILE *saida, int tick_ini, int tick_fim)
 
     n_ticks = tick_fim - tick_ini + 1;
     largura = MARG_E + n_ticks * CEL_W + 10;
-    if (largura < 10 + N_LEGENDA * LEG_W) /* a legenda precisa caber */
-        largura = 10 + N_LEGENDA * LEG_W;
+    /* A legenda precisa caber: os itens do vetor + o da troca de algoritmo. */
+    if (largura < 10 + (N_LEGENDA + 1) * LEG_W)
+        largura = 10 + (N_LEGENDA + 1) * LEG_W;
     y_eixo = MARG_T + (nc + nt) * LIN_H;
     altura = y_eixo + 60; /* números do eixo + legenda */
 
@@ -199,7 +200,7 @@ int gantt_svg(const Simulacao *s, FILE *saida, int tick_ini, int tick_fim)
             "</defs>\n"
             "<rect width=\"100%%\" height=\"100%%\" fill=\"white\"/>\n"
             "<text x=\"10\" y=\"25\" font-size=\"14\">%s, ticks %d a %d</text>\n",
-            largura, altura, e->algoritmo, tick_ini, tick_fim);
+            largura, altura, s->historico[tick_ini].algoritmo, tick_ini, tick_fim);
 
     /* Faixa das CPUs: na cor da tarefa que a ocupa, ou hachurada. */
     for (int c = 0; c < nc; c++)
@@ -275,6 +276,22 @@ int gantt_svg(const Simulacao *s, FILE *saida, int tick_ini, int tick_fim)
             fprintf(saida, "<text x=\"%d\" y=\"%d\" text-anchor=\"middle\">%d</text>\n",
                     MARG_E + (t - tick_ini) * CEL_W + CEL_W / 2, y_eixo + 14, t);
 
+    /* Troca de algoritmo (req. 3.1): onde o nome muda de uma foto para a
+     * seguinte. A foto t já diz o algoritmo novo, mas as CPUs do tick t foram
+     * distribuídas pelo antigo; por isso a linha fica na borda DIREITA do tick
+     * t: à esquerda dela, algoritmo antigo; à direita, o novo. */
+    for (int t = (tick_ini > 0 ? tick_ini : 1); t <= tick_fim; t++)
+    {
+        if (strcmp(s->historico[t].algoritmo, s->historico[t - 1].algoritmo) == 0)
+            continue;
+        int x = MARG_E + (t - tick_ini + 1) * CEL_W;
+        fprintf(saida, "<line x1=\"%d\" y1=\"%d\" x2=\"%d\" y2=\"%d\" "
+                       "stroke=\"#c00\" stroke-width=\"1.5\" stroke-dasharray=\"4 3\"/>\n",
+                x, MARG_T - 4, x, y_eixo);
+        fprintf(saida, "<text x=\"%d\" y=\"%d\" fill=\"#c00\" font-size=\"10\">%s</text>\n",
+                x + 3, MARG_T - 6, s->historico[t].algoritmo);
+    }
+
     /* Legenda (obrigatória), dentro do SVG para sair igual na tela e no
      * arquivo exportado. */
     for (int k = 0; k < N_LEGENDA; k++)
@@ -288,6 +305,19 @@ int gantt_svg(const Simulacao *s, FILE *saida, int tick_ini, int tick_fim)
             fprintf(saida, "<text x=\"%d\" y=\"%d\" text-anchor=\"middle\" fill=\"%s\">%s</text>\n",
                     x + 6, y + 10, COR_SIMBOLO[LEGENDA[k].marca], SIMBOLO[LEGENDA[k].marca]);
         fprintf(saida, "<text x=\"%d\" y=\"%d\">%s</text>\n", x + 17, y + 10, LEGENDA[k].texto);
+    }
+
+    /* Item extra da legenda: a linha da troca de algoritmo. Fica fora do
+     * vetor LEGENDA (e fora do laço acima) porque é o único item que é uma
+     * linha, e não um preenchimento nem um símbolo. Vai na posição seguinte
+     * à do último item do vetor. */
+    {
+        int x = 10 + N_LEGENDA * LEG_W, y = y_eixo + 28;
+        fprintf(saida, "<line x1=\"%d\" y1=\"%d\" x2=\"%d\" y2=\"%d\" "
+                       "stroke=\"#c00\" stroke-width=\"1.5\" stroke-dasharray=\"4 3\"/>\n",
+                x + 6, y, x + 6, y + 12);
+        fprintf(saida, "<text x=\"%d\" y=\"%d\">troca de algoritmo</text>\n",
+                x + 17, y + 10);
     }
 
     fprintf(saida, "</svg>\n");
