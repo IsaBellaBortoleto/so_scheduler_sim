@@ -44,3 +44,6 @@ graphify-out/
 Thumbs.db
 desktop.ini
 .DS_Store
+
+# Arquivo de controle de uma ferramenta de skills do editor (nao e do projeto)
+skills-lock.json

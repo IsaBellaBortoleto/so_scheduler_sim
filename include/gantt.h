@@ -17,12 +17,16 @@
  * so, e a imagem exportada e identica a da tela por construcao.
  * --------------------------------------------------------------------------*/
 
-/* Quantos ticks a tela ao vivo mostra (os ultimos, ate o tick atual).
+/* Quantos ticks, NO MINIMO, a tela ao vivo mostra (os ultimos, ate o tick
+ * atual). O servidor aumenta a janela quando o arquivo e pequeno: ele limita
+ * a imagem a ~20 mil celulas (linhas x ticks), entao com poucas tarefas a
+ * simulacao inteira cabe na tela (ver responder_svg em servidor.c).
  *
  * Por que nao mostrar tudo sempre: com um arquivo do porte do teste do
  * professor (~4 KB, ~190 tarefas), o SVG completo chega a 2,8-7,5 MB e
  * 30-78 mil elementos. Reenviar e redesenhar isso a cada clique em
  * "avancar" trava a pagina. Com 60 ticks, cada passo fica em ~150 KB.
+ * (Medido com a versao antiga do desenho, que preenchia todas as celulas.)
  * Para ver ticks antigos: retroceder, ou exportar o SVG completo. */
 #define GANTT_JANELA_TELA 60
 

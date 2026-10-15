@@ -541,6 +541,29 @@ static void teste_editar(void)
     printf("autoteste: editar tarefa ... ok\n");
 }
 
+/* gantt_svg (gantt.h): inteira, janela e intervalo invalido. Arquivo de nome
+ * fixo na pasta atual: tmpfile() falha no Windows (ver gantt.h). */
+static void teste_gantt(void)
+{
+    Simulacao s;
+    FILE *f = fopen("autoteste_gantt.svg", "w+b");
+
+    assert(f != NULL);
+    iniciar_de_texto(&s, "RM;0;2\n1;FF0000;0;2;6\n2;;1;3;8");
+    while (sim_avancar(&s))
+        ;
+    assert(gantt_svg(&s, f, 0, s.n_hist - 1) == 1);
+    assert(gantt_svg(&s, f, 3, 5) == 1);
+    assert(gantt_svg(&s, f, 5, 3) == 0);
+    assert(gantt_svg(&s, f, 0, s.n_hist) == 0);
+    assert(ftell(f) > 0);
+    fclose(f);
+    remove("autoteste_gantt.svg");
+    sim_liberar(&s);
+
+    printf("autoteste: gantt_svg ... ok\n");
+}
+
 /* JSON dos erros e avisos do carregamento (estado_json.h). */
 static void teste_diagnostico_json(void)
 {
@@ -660,6 +683,7 @@ static void autoteste(void)
     teste_escalonar();
     teste_prazos();
     teste_editar();
+    teste_gantt();
 
     /* TODO: iniciar a simulacao com o Estado pequeno e conferir:
      *   - sim_executar_tudo termina com MAX_ATIVACOES em cada tarefa;

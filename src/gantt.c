@@ -69,11 +69,21 @@ static Marca marca_em(const Simulacao *s, int t, int i)
  * linha 0 = menor id = mais próxima do eixo X (requisito 2.5). */
 static void ordem_por_id(const Estado *e, int *ordem)
 {
-    /* TODO: preencher ordem[0..ntarefas-1] com os índices 0..ntarefas-1 e
-     * ordená-los pelo campo .id (crescente) -- um insertion sort simples
-     * já resolve, não precisa de qsort aqui. */
-    (void)e;
-    (void)ordem;
+    /* Insertion sort que já preenche: o índice i entra no fim e anda para
+     * trás enquanto o id da vizinha for maior. Não usa qsort porque a
+     * comparação precisa de e->tarefas, e o comparador do qsort não recebe
+     * contexto (só por variável global). Os ids são únicos (config.c recusa
+     * repetidos), então não há empate.*/
+    for (int i = 0; i < e->ntarefas; i++)
+    {
+        int j = i;
+        while (j > 0 && e->tarefas[ordem[j - 1]].id > e->tarefas[i].id)
+        {
+            ordem[j] = ordem[j - 1];
+            j--;
+        }
+        ordem[j] = i;
+    }
 }
 
 /* ==========================================================================
@@ -84,44 +94,177 @@ static void ordem_por_id(const Estado *e, int *ordem)
 #define LIN_H  22   /* altura de uma linha do gráfico                        */
 #define MARG_E 90   /* margem esquerda, onde vão os rótulos das linhas       */
 #define MARG_T 50   /* margem superior, para o título                        */
+#define LEG_W  110  /* largura de um item da legenda                         */
 
+/* Símbolo de cada marcador, na ordem do enum Marca. São caracteres de texto
+ * (UTF-8), não desenhos: o SVG vai com charset=utf-8 e o navegador os
+ * desenha com a fonte. */
+static const char *const SIMBOLO[] = { "", "★", "▲", "▼", "✖" };
+static const char *const COR_SIMBOLO[] = { "", "#8a6d00", "black", "black", "red" };
+
+/* Itens da legenda (requisito 2.1). 'marca' != MARCA_NENHUMA desenha o
+ * símbolo do marcador em vez da amostra de preenchimento. */
+static const struct {
+    const char *fill;
+    Marca marca;
+    const char *texto;
+} LEGENDA[] = {
+    { "#4a90d9",    MARCA_NENHUMA, "executando" },
+    { "none",       MARCA_NENHUMA, "pronta" },
+    { "url(#susp)", MARCA_NENHUMA, "suspensa" },
+    { "url(#desl)", MARCA_NENHUMA, "CPU desligada" },
+    { NULL,         MARCA_CHEGADA, "chegada" },
+    { NULL,         MARCA_TERMINO, "término" },
+    { NULL,         MARCA_PRAZO,   "prazo perdido" },
+    { NULL,         MARCA_SORTEIO, "sorteio" },
+};
+#define N_LEGENDA ((int)(sizeof LEGENDA / sizeof LEGENDA[0]))
+
+/* Uma célula de LIN_H - 4 de altura, com 2 px de folga em cima e embaixo. */
+static void celula(FILE *f, int x, int y, const char *fill, const char *contorno)
+{
+    fprintf(f, "<rect x=\"%d\" y=\"%d\" width=\"%d\" height=\"%d\" fill=\"%s\" "
+               "stroke=\"%s\" stroke-width=\"0.5\"/>\n",
+            x, y + 2, CEL_W, LIN_H - 4, fill, contorno);
+}
+
+/* LAYOUT, de cima para baixo:
+ *   título
+ *   uma linha por CPU (requisito 1.2: CPU desligada aparece hachurada)
+ *   uma linha por tarefa, MAIOR id em cima e menor encostado no eixo X (2.5)
+ *   eixo X, com o número REAL do tick a cada 5
+ *   legenda
+ * Coluna de um tick: x = MARG_E + (t - tick_ini) * CEL_W. Subtrair tick_ini
+ * é o que faz a janela da tela ao vivo começar na borda do desenho. */
 int gantt_svg(const Simulacao *s, FILE *saida, int tick_ini, int tick_fim)
 {
-    /* TODO:
-     * 1) validar: n_hist > 0 e 0 <= tick_ini <= tick_fim < n_hist; senão
-     *    devolver 0. NÃO abrir nem fechar 'saida' -- quem chamou é dono
-     *    dele (ver gantt.h). Escrever tudo com fprintf(saida, ...).
-     * 2) n_ticks = tick_fim - tick_ini + 1. Largura total = MARG_E +
-     *    n_ticks * CEL_W; altura = MARG_T + (ncpus + ntarefas) * LIN_H +
-     *    espaço da legenda. Com ~190 tarefas (arquivo do professor) a
-     *    altura passa de 4000 px -- normal, a página tem rolagem.
-     * 3) cabeçalho SVG (<svg width=... height=... ...>) e um <rect> de
-     *    fundo branco.
-     * 4) faixa das CPUs, ACIMA das tarefas (requisito 1.2: o tempo em que
-     *    cada processador fica desligado precisa aparecer no gráfico):
-     *    para cada CPU c e tick t, historico[t].cpus[c].tarefa == -1 ->
-     *    célula hachurada cinza; senão -> célula na cor da tarefa que
-     *    ocupa a CPU.
-     * 5) ordem_por_id() pra saber em que linha (Y) cada tarefa vai.
-     * 6) para cada tick t em tick_ini..tick_fim e cada tarefa i: x =
-     *    MARG_E + (t - tick_ini) * CEL_W -- subtrair tick_ini, senão a
-     *    janela da tela ao vivo começa fora do desenho. Desenhar o <rect>
-     *    conforme o estado (convenções no topo do arquivo). Se
-     *    EXECUTANDO, o número da CPU dentro da célula (<text>).
-     * 7) marca_em(s, t, i) e o marcador por cima da célula quando !=
-     *    MARCA_NENHUMA. ATENÇÃO na borda esquerda da janela: em t ==
-     *    tick_ini > 0, o tick anterior existe no histórico e marca_em
-     *    deve compará-lo normalmente. Se tratar a borda como "não há
-     *    antes", toda tarefa ativa ganha um ▲ falso de chegada ali.
-     * 8) rótulos: id da tarefa e "CPU n" na margem esquerda; no eixo X,
-     *    o número REAL do tick (t, não t - tick_ini), a cada 5.
-     * 9) legenda (obrigatória): executando, pronta, suspensa, CPU
-     *    desligada e os quatro marcadores. Fica dentro do SVG pra
-     *    aparecer igual na tela e no arquivo exportado.
-     * 10) fechar com </svg>. Devolver 1. */
-    (void)s;
-    (void)saida;
-    (void)tick_ini;
-    (void)tick_fim;
-    return 0;
+    const Estado *e;
+    int nt, nc, n_ticks, largura, altura, y_eixo, *ordem;
+
+    if (s->n_hist <= 0 || tick_ini < 0 || tick_ini > tick_fim ||
+        tick_fim >= s->n_hist)
+        return 0;
+
+    /* Tarefas e CPUs são as mesmas em todas as fotos do histórico. */
+    e = &s->historico[tick_fim];
+    nt = e->ntarefas;
+    nc = e->ncpus;
+    ordem = malloc((nt > 0 ? nt : 1) * sizeof *ordem);
+    if (ordem == NULL)
+        return 0;
+    ordem_por_id(e, ordem);
+
+    n_ticks = tick_fim - tick_ini + 1;
+    largura = MARG_E + n_ticks * CEL_W + 10;
+    if (largura < 10 + N_LEGENDA * LEG_W) /* a legenda precisa caber */
+        largura = 10 + N_LEGENDA * LEG_W;
+    y_eixo = MARG_T + (nc + nt) * LIN_H;
+    altura = y_eixo + 60; /* números do eixo + legenda */
+
+    /* Cabeçalho, fundo branco e os dois padrões de preenchimento:
+     * 'desl' = hachura cinza (CPU desligada), 'susp' = pontilhado preto
+     * (SUSPENSA: preta, mas diferente do sólido da execução). */
+    fprintf(saida,
+            "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"%d\" height=\"%d\" "
+            "font-family=\"sans-serif\" font-size=\"11\">\n"
+            "<defs>\n"
+            "<pattern id=\"desl\" width=\"4\" height=\"4\" patternUnits=\"userSpaceOnUse\" "
+            "patternTransform=\"rotate(45)\"><rect width=\"2\" height=\"4\" fill=\"#999\"/></pattern>\n"
+            "<pattern id=\"susp\" width=\"4\" height=\"4\" patternUnits=\"userSpaceOnUse\">"
+            "<circle cx=\"2\" cy=\"2\" r=\"1\" fill=\"black\"/></pattern>\n"
+            "</defs>\n"
+            "<rect width=\"100%%\" height=\"100%%\" fill=\"white\"/>\n"
+            "<text x=\"10\" y=\"25\" font-size=\"14\">%s, ticks %d a %d</text>\n",
+            largura, altura, e->algoritmo, tick_ini, tick_fim);
+
+    /* Faixa das CPUs: na cor da tarefa que a ocupa, ou hachurada. */
+    for (int c = 0; c < nc; c++)
+    {
+        int y = MARG_T + c * LIN_H;
+        fprintf(saida, "<text x=\"%d\" y=\"%d\" text-anchor=\"end\">CPU %d</text>\n",
+                MARG_E - 8, y + LIN_H / 2 + 4, e->cpus[c].id);
+        for (int t = tick_ini; t <= tick_fim; t++)
+        {
+            const Estado *h = &s->historico[t];
+            int x = MARG_E + (t - tick_ini) * CEL_W;
+            int idx = h->cpus[c].tarefa;
+            char cor[8];
+            if (idx < 0)
+            {
+                celula(saida, x, y, "url(#desl)", "#ccc");
+                continue;
+            }
+            snprintf(cor, sizeof cor, "#%02X%02X%02X",
+                     h->tarefas[idx].r, h->tarefas[idx].g, h->tarefas[idx].b);
+            celula(saida, x, y, cor, "#ccc");
+        }
+    }
+
+    /* Tarefas: linha k = k-ésimo menor id, contada de baixo para cima. */
+    for (int k = 0; k < nt; k++)
+    {
+        int i = ordem[k];
+        int y = MARG_T + (nc + nt - 1 - k) * LIN_H;
+        fprintf(saida, "<text x=\"%d\" y=\"%d\" text-anchor=\"end\">T%d</text>\n",
+                MARG_E - 8, y + LIN_H / 2 + 4, e->tarefas[i].id);
+        for (int t = tick_ini; t <= tick_fim; t++)
+        {
+            const Estado *h = &s->historico[t];
+            const TCB *tc = &h->tarefas[i];
+            int x = MARG_E + (t - tick_ini) * CEL_W;
+            Marca m = marca_em(s, t, i);
+
+            if (tc->estado == EST_EXECUTANDO)
+            {
+                char cor[8];
+                /* Texto preto em cor clara, branco em cor escura
+                 * (luminância percebida, pesos da ITU-R BT.601). */
+                int claro = (tc->r * 299 + tc->g * 587 + tc->b * 114) / 1000 > 150;
+                snprintf(cor, sizeof cor, "#%02X%02X%02X", tc->r, tc->g, tc->b);
+                celula(saida, x, y, cor, "#555");
+                if (tc->cpu >= 0 && tc->cpu < h->ncpus)
+                    fprintf(saida, "<text x=\"%d\" y=\"%d\" text-anchor=\"middle\" "
+                                   "font-size=\"9\" fill=\"%s\">%d</text>\n",
+                            x + CEL_W / 2, y + LIN_H / 2 + 3,
+                            claro ? "black" : "white", h->cpus[tc->cpu].id);
+            }
+            else if (tc->estado == EST_PRONTA)
+                celula(saida, x, y, "none", "#555");
+            else if (tc->estado == EST_SUSPENSA)
+                celula(saida, x, y, "url(#susp)", "black");
+            /* INATIVA/CONCLUIDA: nada. */
+
+            if (m != MARCA_NENHUMA)
+                fprintf(saida, "<text x=\"%d\" y=\"%d\" text-anchor=\"middle\" "
+                               "font-size=\"9\" fill=\"%s\">%s</text>\n",
+                        x + CEL_W / 2, y + 3, COR_SIMBOLO[m], SIMBOLO[m]);
+        }
+    }
+    free(ordem);
+
+    /* Eixo X e o número REAL do tick (t, não t - tick_ini) a cada 5. */
+    fprintf(saida, "<line x1=\"%d\" y1=\"%d\" x2=\"%d\" y2=\"%d\" stroke=\"black\"/>\n",
+            MARG_E, y_eixo, MARG_E + n_ticks * CEL_W, y_eixo);
+    for (int t = tick_ini; t <= tick_fim; t++)
+        if (t % 5 == 0)
+            fprintf(saida, "<text x=\"%d\" y=\"%d\" text-anchor=\"middle\">%d</text>\n",
+                    MARG_E + (t - tick_ini) * CEL_W + CEL_W / 2, y_eixo + 14, t);
+
+    /* Legenda (obrigatória), dentro do SVG para sair igual na tela e no
+     * arquivo exportado. */
+    for (int k = 0; k < N_LEGENDA; k++)
+    {
+        int x = 10 + k * LEG_W, y = y_eixo + 28;
+        if (LEGENDA[k].marca == MARCA_NENHUMA)
+            fprintf(saida, "<rect x=\"%d\" y=\"%d\" width=\"12\" height=\"12\" "
+                           "fill=\"%s\" stroke=\"#555\"/>\n",
+                    x, y, LEGENDA[k].fill);
+        else
+            fprintf(saida, "<text x=\"%d\" y=\"%d\" text-anchor=\"middle\" fill=\"%s\">%s</text>\n",
+                    x + 6, y + 10, COR_SIMBOLO[LEGENDA[k].marca], SIMBOLO[LEGENDA[k].marca]);
+        fprintf(saida, "<text x=\"%d\" y=\"%d\">%s</text>\n", x + 17, y + 10, LEGENDA[k].texto);
+    }
+
+    fprintf(saida, "</svg>\n");
+    return 1;
 }

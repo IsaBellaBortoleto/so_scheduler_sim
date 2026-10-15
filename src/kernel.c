@@ -19,11 +19,6 @@
  *
  * NOTA: estado_clonar/estado_liberar/estado_nome moram em tcb.c (é lá que
  * `tcb.h` os declara), não duplicar aqui.
- *
- * DUAS PEÇAS QUE FALTAVAM NESTE ARQUIVO (em relação ao que kernel.h
- * declara/ao comentário acima) e que eu acrescentei como TODO:
- *   - sim_iniciar(): estava declarada em kernel.h mas sem nenhum stub.
- *   - ativar(): citada no comentário de ordem acima, mas sem stub também.
  * ==========================================================================*/
 #include "kernel.h"
 
@@ -33,10 +28,12 @@
 #include <stdlib.h>
 #include <string.h>
 
+/* Acha a POSIÇÃO de uma tarefa no vetor a partir do ID que o usuário vê.
+ * São coisas diferentes: o ID vem do arquivo (pode ser 7, 42...), a posição
+ * é 0, 1, 2... Devolve -1 se o ID não existe. Busca simples, uma por uma:
+ * com ~190 tarefas e uma busca por clique, não vale nada mais elaborado. */
 int sim_indice_por_id(const Estado *e, int id)
 {
-    /* TODO: percorrer e->tarefas procurando id igual; devolver o índice
-     * ou -1 se não achar. */
     for (int i = 0; i < e->ntarefas; i++)
     {
         if (e->tarefas[i].id == id)
@@ -62,7 +59,7 @@ static int todas_concluidas(const Estado *e)
 
 /* Guarda a fotografia do tick corrente em historico[n_hist].
  *
- * ponytail: guardamos o estado INTEIRO a cada tick, não um diário de
+ * guardamos o estado INTEIRO a cada tick, não um diário de
  * diferenças. Custo = ntarefas * ticks * sizeof(TCB) — para 20 tarefas e
  * 5000 ticks dá poucos megabytes, e em troca retroceder é um memcpy.
  * Trocar por undo-log só se a simulação precisar de milhões de ticks. */
@@ -121,22 +118,11 @@ static void ativar(Simulacao *s)
  * absoluta). */
 static void escalonar(Simulacao *s)
 {
-    /* TODO:
-     * 1) montar a lista de candidatos: índices de tarefas com estado
-     *    EST_PRONTA ou EST_EXECUTANDO (quem já está rodando também entra
-     *    na disputa de novo, pra permitir preempção de verdade).
-     * 2) escalonador_ordenar(s->esc, &s->atual, candidatos, n_candidatos).
-     * 3) vencedores = min(n_candidatos, e->ncpus) primeiros da lista
-     *    ordenada.
-     * 4) quem estava EST_EXECUTANDO mas NÃO está entre os vencedores foi
-     *    preemptado: solta a CPU (cpus[cpu].tarefa=-1), volta pra
-     *    EST_PRONTA, mantendo o exec_restante que já tinha.
-     * 5) vencedores que ainda não têm CPU (cpu==-1) recebem a primeira
-     *    CPU livre: estado=EST_EXECUTANDO, cpu=essa CPU,
-     *    cpus[essa].tarefa=índice da tarefa, quantum_restante =
-     *    e->quantum (reinicia o quantum a cada nova atribuição).
-     * 6) CPUs que sobraram sem ninguém: cpus[c].ticks_desligada++
-     *    (requisito 1.2: acumular o período ocioso pro relatório final). */
+    /* Os seis passos estão numerados abaixo. A ideia central: a cada tick
+     * TODAS as prontas e as que estão executando disputam as CPUs de novo.
+     * Por isso uma tarefa mais prioritária que chega toma a CPU de quem
+     * está rodando (preempção). Quem continua rodando só ganha vantagem no
+     * desempate (critério 1 do req. 4.3), não passe livre. */
     Estado *e = &s->atual;
 
     /* 1) Montar a lista de candidatos */
@@ -223,22 +209,10 @@ static void escalonar(Simulacao *s)
  * pode executar" antes de precisar ceder a CPU). */
 static void executar(Simulacao *s)
 {
-    /* TODO: para cada tarefa EST_EXECUTANDO:
-     *   exec_restante--
-     *   se e->quantum > 0 e quantum_restante > 0: quantum_restante--
-     *  
-     *   se exec_restante <= 0 (ativação concluída):
-     *     solta a CPU, cpu=-1, quantum_restante=0, ativacoes++
-     *     estado = EST_CONCLUIDA se ativacoes >= MAX_ATIVACOES (10, ver
-     *     requisito 4.4), senão EST_INATIVA (aguarda a próxima ativação)
-     *
-     *   senão se quantum > 0 e quantum_restante <= 0 (quantum esgotado,
-     *   ainda falta trabalho): solta a CPU, cpu=-1, estado=EST_PRONTA
-     *   (ela volta a competir no próximo escalonar(), agora sem a
-     *   vantagem do critério de desempate 1, já que não está mais
-     *   EST_EXECUTANDO)
-     *
-     *   senão: nada muda, ela continua executando. */
+    /* Para cada tarefa na CPU: gasta 1 unidade de trabalho e 1 de quantum,
+     * e então decide se ela (a) terminou esta execução, (b) esgotou o
+     * quantum e devolve a CPU, ou (c) segue executando. Quem decide QUEM
+     * entra nas CPUs livres é escalonar(), logo depois, no mesmo tick. */
     Estado *executando = &s->atual;
     for(int i = 0; i < executando->ntarefas; i++)
     {
@@ -251,9 +225,11 @@ static void executar(Simulacao *s)
                 tarefa->quantum_restante--;
 
             }
+            /* (a) Terminou esta execução: solta a CPU e conta mais uma. Na
+             * 10a vira CONCLUIDA (req. 4.4); antes disso volta a INATIVA e
+             * espera a próxima chegada do período. */
             if(tarefa->exec_restante<=0)
             {
-                // Ativação concluída
                 executando->cpus[tarefa->cpu].tarefa=-1;
                 tarefa->cpu=-1;
                 tarefa->quantum_restante=0;
@@ -268,7 +244,11 @@ static void executar(Simulacao *s)
                 {
                     tarefa->estado = EST_INATIVA;
                 }
-            }else if(executando->quantum >0 && tarefa->quantum_restante<=0)
+            }
+            /* (b) Quantum esgotado com trabalho por fazer: devolve a CPU e
+             * volta para a fila. quantum 0 no arquivo = sem limite, por
+             * isso o "quantum > 0". */
+            else if(executando->quantum >0 && tarefa->quantum_restante<=0)
             {
                 executando->cpus[tarefa->cpu].tarefa=-1;
                 tarefa->cpu=-1;
@@ -422,6 +402,8 @@ int sim_retroceder(Simulacao *s)
 
     /* Voltou um tick: mesmo que a simulação tivesse acabado, não acabou mais. */
     s->terminada = 0;
+    snprintf(s->ultimo_evento, sizeof s->ultimo_evento,
+         "retrocedeu para o tick %d", s->atual.tick);
     return 1;
 }
 

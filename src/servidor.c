@@ -206,18 +206,21 @@ static void enviar_tudo(soquete_t c, const char *dados, size_t tam)
 }
 
 /* Manda uma resposta HTTP completa: a linha de status, os cabeçalhos
- * (Content-Type e Content-Length) e o corpo. */
+ * (Content-Type e Content-Length) e o corpo. 'extra' é um cabeçalho a mais,
+ * já com o \r\n no fim, ou "" se não houver: a exportação do Gantt usa
+ * para mandar o Content-Disposition, que faz o navegador BAIXAR o arquivo. */
 static void responder(soquete_t c, const char *status, const char *tipo,
-                      const void *corpo, size_t tam)
+                      const char *extra, const void *corpo, size_t tam)
 {
-    char cab[256];
+    char cab[512];
     int n = snprintf(cab, sizeof cab,
              "HTTP/1.1 %s\r\n"
              "Content-Type: %s\r\n"
              "Content-Length: %lu\r\n"
+             "%s"
              "Connection: close\r\n"
              "\r\n",
-             status, tipo, (unsigned long)tam);
+             status, tipo, (unsigned long)tam, extra);
 
     enviar_tudo(c, cab, (size_t)n); /* cabeçalho primeiro */
     if (tam > 0)
@@ -228,7 +231,7 @@ static void responder(soquete_t c, const char *status, const char *tipo,
  * contar os caracteres à mão é fácil de errar. */
 static void responder_texto(soquete_t c, const char *status, const char *msg)
 {
-    responder(c, status, "text/plain; charset=utf-8", msg, strlen(msg));
+    responder(c, status, "text/plain; charset=utf-8", "", msg, strlen(msg));
 }
 
 /* ---------------------------- etapa 4: as rotas --------------------------- */
@@ -249,7 +252,7 @@ static int servir_recurso(soquete_t c, const Pedido *p)
         const RecursoWeb *r = &RECURSOS_WEB[i];
         if (strcmp(p->caminho, r->caminho) == 0)
         {
-            responder(c, "200 OK", r->tipo_mime, r->dados, r->tamanho);
+            responder(c, "200 OK", r->tipo_mime, "", r->dados, r->tamanho);
             return 1;
         }
     }
@@ -266,7 +269,7 @@ static void responder_estado(Simulacao *sim, soquete_t c, const Diagnostico *d)
     if (n < 0)
         responder_texto(c, "500 Internal Server Error", "estado grande demais");
     else
-        responder(c, "200 OK", "application/json; charset=utf-8", json, (size_t)n);
+        responder(c, "200 OK", "application/json; charset=utf-8", "", json, (size_t)n);
 }
 
 /* Manda a lista de erros: {"erro":true,"erros":[...],"avisos":[...]}. O
@@ -278,7 +281,7 @@ static void responder_erros(soquete_t c, const Diagnostico *d)
     if (n < 0)
         responder_texto(c, "500 Internal Server Error", "erros demais para listar");
     else
-        responder(c, "200 OK", "application/json; charset=utf-8", json, (size_t)n);
+        responder(c, "200 OK", "application/json; charset=utf-8", "", json, (size_t)n);
 }
 
 /* POST /api/carregar: o corpo do pedido é o CONTEÚDO do arquivo escolhido na
@@ -358,6 +361,71 @@ static void rota_editar(Simulacao *sim, soquete_t c, const Pedido *p)
     responder_erros(c, &d);
 }
 
+/* GET /api/gantt e /api/exportar_svg (req. 2.3 e 2.4): o gráfico de Gantt
+ * em SVG, desenhado pelo gantt.c. 'inteira' = 0 -> a janela da tela, os
+ * últimos ticks (pelo menos GANTT_JANELA_TELA); 1 -> a simulação toda, como
+ * download.
+ *
+ * O gantt_svg escreve num FILE*, e um socket não é FILE* no Windows. Então
+ * o SVG vai para um arquivo em %TEMP%, é lido de volta e enviado. Não é
+ * tmpfile(): no Windows ele tenta criar em C:\ e falha (ver gantt.h).
+ * ponytail: sem TEMP (comum no Linux) usa a pasta atual. */
+static void responder_svg(soquete_t c, const Simulacao *sim, int inteira)
+{
+    char caminho[512];
+    const char *pasta = getenv("TEMP");
+    int nt = sim->atual.ntarefas;
+    int nc = sim->atual.ncpus;
+    int janela = GANTT_JANELA_TELA;
+    int fim = sim->n_hist - 1; /* a última foto é o tick atual */
+    int ini;
+    FILE *f;
+    char *svg = NULL;
+    long tam = -1;
+
+    /* Janela da tela: ~20 mil células por imagem. Arquivo pequeno cabe
+     * inteiro; o do professor (~190 tarefas) fica com uns 100 ticks.
+     * GANTT_JANELA_TELA é o mínimo. Sem simulação, nt + nc = 0: a conta só
+     * é feita com linhas, senão seria divisão por zero (derruba o programa).
+     * ponytail: 20 mil é estimativa; medir no teste com 200 tarefas. */
+    if (nt + nc > 0 && 20000 / (nt + nc) > janela)
+        janela = 20000 / (nt + nc);
+    /* Só DEPOIS de calcular a janela: calculado antes, usaria o mínimo. */
+    ini = inteira ? 0 : fim - janela + 1;
+    if (ini < 0)
+        ini = 0;
+    snprintf(caminho, sizeof caminho, "%s/simulador_gantt.svg", pasta ? pasta : ".");
+    f = fopen(caminho, "w+b"); /* w+: escreve e depois lê o mesmo arquivo */
+    if (f == NULL)
+    {
+        responder_texto(c, "500 Internal Server Error", "nao foi possivel criar o arquivo temporario");
+        return;
+    }
+    if (!gantt_svg(sim, f, ini, fim))
+    {
+        fclose(f);
+        remove(caminho);
+        /* 409 = conflito com o estado atual: a rota existe, só não há
+         * simulação carregada para desenhar. */
+        responder_texto(c, "409 Conflict", "nenhuma simulacao carregada");
+        return;
+    }
+    /* Tamanho = posição final da escrita; volta ao início e lê tudo. */
+    tam = ftell(f);
+    rewind(f);
+    if (tam >= 0)
+        svg = malloc(tam > 0 ? (size_t)tam : 1);
+    if (svg != NULL && fread(svg, 1, (size_t)tam, f) == (size_t)tam)
+        responder(c, "200 OK", "image/svg+xml; charset=utf-8",
+                  inteira ? "Content-Disposition: attachment; filename=\"gantt.svg\"\r\n" : "",
+                  svg, (size_t)tam);
+    else
+        responder_texto(c, "500 Internal Server Error", "falha ao ler o SVG gerado");
+    free(svg);
+    fclose(f);
+    remove(caminho);
+}
+
 /* O ROTEADOR: lê um pedido e escolhe quem responde. Não faz o trabalho, só
  * decide; cada rota tem a sua função, logo acima.
  *
@@ -368,6 +436,8 @@ static void rota_editar(Simulacao *sim, soquete_t c, const Pedido *p)
  *   POST /api/retroceder           -> sim_retroceder    (volta um tick)
  *   POST /api/executar_tudo        -> sim_executar_tudo (até o fim)
  *   POST /api/editar               -> rota_editar       (muda uma tarefa)
+ *   GET  /api/gantt                -> responder_svg     (janela da tela)
+ *   GET  /api/exportar_svg         -> responder_svg     (simulação inteira)
  *   qualquer outra coisa           -> 404
  *
  * Rota nova = uma função nova e mais um "else if" aqui. */
@@ -415,6 +485,14 @@ static void atender(Simulacao *sim, soquete_t c)
     }else if (post && strcmp(p.caminho,"/api/editar") == 0)
     {
         rota_editar(sim, c, &p);
+    }
+    else if (get && strcmp(p.caminho, "/api/gantt") == 0)
+    {
+        responder_svg(c, sim, 0);
+    }
+    else if (get && strcmp(p.caminho, "/api/exportar_svg") == 0)
+    {
+        responder_svg(c, sim, 1);
     }
     else
     {

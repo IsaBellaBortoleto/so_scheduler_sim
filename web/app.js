@@ -228,30 +228,60 @@
     els.areaDiagnostico.hidden = erros.length === 0 && avisos.length === 0;
   }
 
+
+  /* Manda um comando ao C (avançar, retroceder, executar tudo) e redesenha
+   * a tela com o estado que volta. Os três botões fazem a MESMA coisa, só
+   * muda o endereço; por isso uma função só, chamada pelos três. */
+  async function comando(caminho) {
+    /* Apaga as mensagens anteriores (ex.: avisos do carregamento). */
+    mostrarDiagnostico([], []);
+
+    /* Botões desligados enquanto espera: impede clique duplo e mostra que
+     * o programa está trabalhando ("executar tudo" pode levar um instante).
+     * definirControlesHabilitados não mexe no retroceder, daí a 2a linha. */
+    definirControlesHabilitados(false);
+    els.btnRetroceder.disabled = true;
+
+    const resp = await postJson(caminho);
+
+    /* Liga tudo; logo abaixo aplicarNovoEstado desliga o que não fizer
+     * sentido no estado novo (mesma ordem de aoCarregar). */
+    definirControlesHabilitados(true);
+
+    /* A única falha aqui é perder a conexão com o programa. Mostra o
+     * motivo e redesenha com o estado que a tela já tinha, para os botões
+     * voltarem ao que eram. */
+    if (resp.erro) {
+      mostrarDiagnostico(resp.erros || [], []);
+      aplicarNovoEstado(app.atual);
+      return;
+    }
+    aplicarNovoEstado(resp);
+  }
+
+  /* Um tick (modo passo a passo, req. 1.5). Avançar depois do fim não faz
+   * nada no C: ele devolve o mesmo estado. */
   async function aoAvancar() {
-    /* TODO: const resp = await postJson('/api/avancar'); se
-     * !resp || resp.erro, não fazer nada (ex.: já terminou). Senão,
-     * aplicarNovoEstado(resp). */
+    await comando("/api/avancar");
   }
 
+  /* Volta um tick, restaurado do histórico guardado no C (req. 1.5.2). */
   async function aoRetroceder() {
-    /* TODO: const resp = await postJson('/api/retroceder'); se
-     * !resp || resp.erro, não fazer nada (já estava no tick 0). Senão,
-     * aplicarNovoEstado(resp) -- resp já é o estado do tick anterior,
-     * restaurado pelo servidor a partir do histórico dele. */
+    await comando("/api/retroceder");
   }
 
+  /* Execução completa (req. 1.5, modo b): UMA chamada. Os ticks do meio
+   * ficam no histórico do C, de onde o Gantt é desenhado. */
   async function aoExecutarTudo() {
-    /* TODO: const resp = await postJson('/api/executar_tudo'); se
-     * sucesso, aplicarNovoEstado(resp). Uma chamada só: os ticks
-     * intermediários ficam no histórico do C, e o Gantt vem de lá. */
+    await comando("/api/executar_tudo");
   }
 
   function aoExportarSvg() {
-    /* TODO: window.location.href = '/api/exportar_svg'. Como o servidor
-     * responde com Content-Disposition: attachment, o navegador baixa o
+    /* Baixa o SVG da simulação inteira, gerado no C (req. 2.4). Como o
+     * servidor responde com Content-Disposition: attachment, o navegador baixa o
      * arquivo sem sair da página. É o SVG da simulação INTEIRA (req. 2.4),
      * diferente do da tela, que mostra só a janela dos últimos ticks. */
+    window.location.href = "/api/exportar_svg";
   }
 
   /* ------------------------- aplicar estado recebido ------------------------ */
@@ -349,13 +379,12 @@
   /* --------------------------------- gantt --------------------------------- */
 
   function atualizarGantt() {
-    /* TODO: els.imgGantt.src = '/api/gantt?v=' + (++app.versaoGantt);
-     *
-     * O desenho todo é do C (gantt.c); aqui só se pede a imagem de novo.
+    /* O desenho todo é do C (gantt.c); aqui só se pede a imagem de novo.
      * O '?v=' com um contador que sempre sobe existe por causa do cache:
      * se a URL fosse sempre '/api/gantt', o navegador reaproveitaria a
      * imagem anterior e o gráfico não mudaria. Contador, e não o número do
      * tick: editar uma tarefa muda o gráfico SEM mudar o tick. */
+    els.imgGantt.src = "/api/gantt?v=" + (++app.versaoGantt);
   }
 
   /* -------------------------------- inspetor -------------------------------- */
