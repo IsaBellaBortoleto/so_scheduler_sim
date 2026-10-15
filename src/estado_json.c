@@ -206,6 +206,16 @@ int estado_json_com_avisos(const Simulacao *sim, const Diagnostico *d,
         sai_tarefa(&s, &e->tarefas[i]);
     }
     sai(&s, "]"); /* fecha só a lista de tarefas */
+    /* Algoritmos registrados: a página monta o seletor com esta
+     * lista, então um algoritmo novo aparece na tela sem mexer no HTML. */
+    sai(&s, ",\"algoritmos\":[");
+    for (int k = 0; k < escalonador_qtde(); k++)
+    {
+        if (k > 0)
+            sai(&s, ",");
+        sai_texto(&s, escalonador_em(k)->nome);
+    }
+    sai(&s, "]");
 
     /* Os avisos entram DEPOIS da lista de tarefas e uma vez só, por isso
      * ficam fora do laço. d == NULL quer dizer "sem avisos nesta resposta":

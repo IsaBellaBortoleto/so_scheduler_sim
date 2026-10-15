@@ -55,43 +55,44 @@
  * ==========================================================================*/
 
 (function () {
-  'use strict';
+  "use strict";
 
   /* Estado global do frontend. Só o tick atual: o histórico mora no C. */
   const app = {
-    atual: null,          /* último Estado recebido do servidor */
+    atual: null /* último Estado recebido do servidor */,
     tarefaSelecionada: null,
-    versaoGantt: 0,       /* ver atualizarGantt() */
+    versaoGantt: 0 /* ver atualizarGantt() */,
   };
 
   const $ = (sel) => document.querySelector(sel);
 
   const els = {
-    infoAlgoritmo: $('#info-algoritmo'),
-    infoQuantum: $('#info-quantum'),
-    infoCpus: $('#info-cpus'),
-    infoTick: $('#info-tick'),
-    infoEstadoSim: $('#info-estado-sim'),
-    entradaArquivo: $('#entrada-arquivo'),
-    btnCarregar: $('#btn-carregar'),
-    btnRetroceder: $('#btn-retroceder'),
-    btnAvancar: $('#btn-avancar'),
-    btnExecutarTudo: $('#btn-executar-tudo'),
-    btnExportarSvg: $('#btn-exportar-svg'),
-    areaDiagnostico: $('#area-diagnostico'),
-    listaErros: $('#lista-erros'),
-    listaAvisos: $('#lista-avisos'),
-    imgGantt: $('#img-gantt'),
-    tabelaCpusBody: $('#tabela-cpus tbody'),
-    tabelaTarefasBody: $('#tabela-tarefas tbody'),
-    painelInspetor: $('#painel-inspetor'),
-    inspetorTituloId: $('#inspetor-titulo-id'),
-    formEditar: $('#form-editar'),
-    editarCampo: $('#editar-campo'),
-    editarValor: $('#editar-valor'),
-    inspetorMotivo: $('#inspetor-motivo'),
-    btnFecharInspetor: $('#btn-fechar-inspetor'),
-    textoUltimoEvento: $('#texto-ultimo-evento'),
+    infoAlgoritmo: $("#info-algoritmo"),
+    infoQuantum: $("#info-quantum"),
+    infoCpus: $("#info-cpus"),
+    infoTick: $("#info-tick"),
+    infoEstadoSim: $("#info-estado-sim"),
+    entradaArquivo: $("#entrada-arquivo"),
+    btnCarregar: $("#btn-carregar"),
+    btnRetroceder: $("#btn-retroceder"),
+    btnAvancar: $("#btn-avancar"),
+    btnExecutarTudo: $("#btn-executar-tudo"),
+    btnExportarSvg: $("#btn-exportar-svg"),
+    areaDiagnostico: $("#area-diagnostico"),
+    listaErros: $("#lista-erros"),
+    listaAvisos: $("#lista-avisos"),
+    imgGantt: $("#img-gantt"),
+    tabelaCpusBody: $("#tabela-cpus tbody"),
+    tabelaTarefasBody: $("#tabela-tarefas tbody"),
+    painelInspetor: $("#painel-inspetor"),
+    inspetorTituloId: $("#inspetor-titulo-id"),
+    formEditar: $("#form-editar"),
+    editarCampo: $("#editar-campo"),
+    editarValor: $("#editar-valor"),
+    inspetorMotivo: $("#inspetor-motivo"),
+    btnFecharInspetor: $("#btn-fechar-inspetor"),
+    textoUltimoEvento: $("#texto-ultimo-evento"),
+    selAlgoritmo: $("#sel-algoritmo"),
   };
 
   /* ------------------------------ chamadas HTTP ---------------------------- */
@@ -120,11 +121,12 @@
     }
   }
 
-  const postJson = (caminho, corpo) => chamarApi(caminho, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: corpo ? JSON.stringify(corpo) : undefined,
-  });
+  const postJson = (caminho, corpo) =>
+    chamarApi(caminho, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: corpo ? JSON.stringify(corpo) : undefined,
+    });
 
   /* ------------------------------ ações da UI ------------------------------ */
 
@@ -228,7 +230,6 @@
     els.areaDiagnostico.hidden = erros.length === 0 && avisos.length === 0;
   }
 
-
   /* Manda um comando ao C (avançar, retroceder, executar tudo) e redesenha
    * a tela com o estado que volta. Os três botões fazem a MESMA coisa, só
    * muda o endereço; por isso uma função só, chamada pelos três. */
@@ -284,6 +285,22 @@
     window.location.href = "/api/exportar_svg";
   }
 
+  /* Troca o algoritmo no meio da simulação (req. 3.1). Se o C recusar,
+   * mostra o motivo e o seletor volta ao algoritmo em vigor. */
+  async function aoTrocarAlgoritmo() {
+    mostrarDiagnostico([], []);
+    const resp = await chamarApi("/api/algoritmo", {
+      method: "POST",
+      body: els.selAlgoritmo.value,
+    });
+    if (resp.erro) {
+      mostrarDiagnostico(resp.erros || [], []);
+      aplicarNovoEstado(app.atual);
+      return;
+    }
+    aplicarNovoEstado(resp);
+  }
+
   /* ------------------------- aplicar estado recebido ------------------------ */
 
   function aplicarNovoEstado(estado) {
@@ -319,6 +336,18 @@
     els.btnRetroceder.disabled = !(estado.tick > 0);
     els.btnAvancar.disabled = estado.terminada;
     els.btnExecutarTudo.disabled = estado.terminada;
+    /* Opções do seletor: montadas uma vez, a partir da lista do C. */
+    if (els.selAlgoritmo.options.length === 0)
+      for (const nome of estado.algoritmos || []) {
+        const op = document.createElement("option");
+        op.value = nome;
+        op.textContent = nome;
+        els.selAlgoritmo.appendChild(op);
+      }
+    /* Mostra o algoritmo em vigor: depois de carregar, de trocar e de
+     * retroceder para antes de uma troca. */
+    els.selAlgoritmo.value = estado.algoritmo;
+    els.selAlgoritmo.disabled = estado.terminada;
   }
 
   function definirControlesHabilitados(ligado) {
@@ -335,7 +364,7 @@
    * duas tabelas. textContent e não innerHTML, pelo mesmo motivo de
    * mostrarDiagnostico: o texto nunca é interpretado como HTML. */
   function celula(tr, texto) {
-    const td = document.createElement('td');
+    const td = document.createElement("td");
     td.textContent = texto;
     tr.appendChild(td);
   }
@@ -344,14 +373,14 @@
     /* Tabela de CPUs: uma linha por processador, na ordem que o C mandou.
      * A tabela é REFEITA inteira a cada estado novo (esvazia e recria): é
      * mais simples do que descobrir o que mudou, e são poucas linhas. */
-    els.tabelaCpusBody.innerHTML = '';
+    els.tabelaCpusBody.innerHTML = "";
     for (const cpu of estado.cpus) {
-      const tr = document.createElement('tr');
+      const tr = document.createElement("tr");
       celula(tr, cpu.id);
       /* O C manda o ID da tarefa, ou -1 se a CPU não tem o que executar.
        * Req. 1.2: CPU sem tarefa é DESLIGADA, e o usuário precisa ver isso
        * e por quanto tempo (a coluna seguinte). */
-      celula(tr, cpu.tarefa === -1 ? 'desligada' : cpu.tarefa);
+      celula(tr, cpu.tarefa === -1 ? "desligada" : cpu.tarefa);
       celula(tr, cpu.ticks_desligada);
       els.tabelaCpusBody.appendChild(tr);
     }
@@ -361,12 +390,12 @@
     /* Tabela de tarefas: uma linha por tarefa, com o que o TCB guarda
      * dela neste tick (req. 1.5.1: examinar cada tarefa no passo a passo).
      * Com ~190 tarefas a tabela fica longa; o painel lateral rola. */
-    els.tabelaTarefasBody.innerHTML = '';
+    els.tabelaTarefasBody.innerHTML = "";
     for (const tarefa of estado.tarefas) {
-      const tr = document.createElement('tr');
+      const tr = document.createElement("tr");
       /* Clicar na linha abre o painel de edição daquela tarefa. A função
        * entre "() =>" só roda no clique, e lembra de qual tarefa é. */
-      tr.addEventListener('click', () => abrirInspetor(tarefa.id));
+      tr.addEventListener("click", () => abrirInspetor(tarefa.id));
       celula(tr, tarefa.id);
       celula(tr, tarefa.estado);
       celula(tr, tarefa.exec_restante);
@@ -384,7 +413,7 @@
      * se a URL fosse sempre '/api/gantt', o navegador reaproveitaria a
      * imagem anterior e o gráfico não mudaria. Contador, e não o número do
      * tick: editar uma tarefa muda o gráfico SEM mudar o tick. */
-    els.imgGantt.src = "/api/gantt?v=" + (++app.versaoGantt);
+    els.imgGantt.src = "/api/gantt?v=" + ++app.versaoGantt;
   }
 
   /* -------------------------------- inspetor -------------------------------- */
@@ -412,12 +441,13 @@
 
   /* --------------------------------- start ---------------------------------- */
 
-  els.btnCarregar.addEventListener('click', aoCarregar);
-  els.btnAvancar.addEventListener('click', aoAvancar);
-  els.btnRetroceder.addEventListener('click', aoRetroceder);
-  els.btnExecutarTudo.addEventListener('click', aoExecutarTudo);
-  els.btnExportarSvg.addEventListener('click', aoExportarSvg);
-  els.formEditar.addEventListener('submit', aoSubmeterEdicao);
-  els.btnFecharInspetor.addEventListener('click', fecharInspetor);
+  els.btnCarregar.addEventListener("click", aoCarregar);
+  els.btnAvancar.addEventListener("click", aoAvancar);
+  els.btnRetroceder.addEventListener("click", aoRetroceder);
+  els.btnExecutarTudo.addEventListener("click", aoExecutarTudo);
+  els.btnExportarSvg.addEventListener("click", aoExportarSvg);
+  els.formEditar.addEventListener("submit", aoSubmeterEdicao);
+  els.btnFecharInspetor.addEventListener("click", fecharInspetor);
+  els.selAlgoritmo.addEventListener("change", aoTrocarAlgoritmo);
   aoAbrirPagina();
 })();

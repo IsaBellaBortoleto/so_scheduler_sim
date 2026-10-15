@@ -286,6 +286,18 @@ static void verificar_prazos(Simulacao *s)
 
 /* ------------------------------ ciclo de vida ----------------------------- */
 
+/* "RM, EDF": os nomes dos algoritmos disponíveis, para as mensagens de erro. */
+static void listar_algoritmos(char *lista, size_t tam)
+{
+    lista[0] = '\0';
+    for (int i = 0; i < escalonador_qtde(); i++)
+    {
+        size_t usado = strlen(lista);
+        snprintf(lista + usado, tam - usado, "%s%s",
+                 i ? ", " : "", escalonador_em(i)->nome);
+    }
+}
+
 int sim_iniciar(Simulacao *s, Estado *inicial, Diagnostico *d)
 {
     /* A busca vem ANTES de mexer em 's': se o algoritmo não existe, a
@@ -294,13 +306,8 @@ int sim_iniciar(Simulacao *s, Estado *inicial, Diagnostico *d)
     if (esc == NULL)
     {
         /* Erro claro (requisito 5): diz o que veio e o que é aceito. */
-        char lista[128] = "";
-        for (int i = 0; i < escalonador_qtde(); i++)
-        {
-            size_t usado = strlen(lista);
-            snprintf(lista + usado, sizeof lista - usado, "%s%s",
-                     i ? ", " : "", escalonador_em(i)->nome);
-        }
+        char lista[128];
+        listar_algoritmos(lista, sizeof lista);
         diag_erro(d, "algoritmo \"%s\" nao existe (disponiveis: %s)",
                   inicial->algoritmo, lista);
         return 0;
@@ -405,10 +412,14 @@ int sim_retroceder(Simulacao *s)
      * próximo avanço estragaria o histórico. */
     s->atual = estado_clonar(&s->historico[s->n_hist - 1]);
 
+    /* O algoritmo vem da foto: retroceder para antes de uma troca de
+     * algoritmo desfaz a troca (o ponteiro é só um atalho para o nome). */
+    s->esc = escalonador_buscar(s->atual.algoritmo);
+
     /* Voltou um tick: mesmo que a simulação tivesse acabado, não acabou mais. */
     s->terminada = 0;
     snprintf(s->ultimo_evento, sizeof s->ultimo_evento,
-         "retrocedeu para o tick %d", s->atual.tick);
+             "retrocedeu para o tick %d", s->atual.tick);
     return 1;
 }
 
@@ -635,4 +646,63 @@ void sim_liberar(Simulacao *s)
      * continuaria apontando para um algoritmo, e a página acharia que ainda
      * existe uma simulação carregada. */
     memset(s, 0, sizeof *s);
+}
+
+/* TROCAR O ALGORITMO no meio da simulação (req. 3.1). Devolve 1 se trocou;
+ * 0 se recusou, com o porquê em 'motivo' (o texto que a página mostra).
+ *
+ * Trocar é só apontar s->esc para outro escalonador: o núcleo chama sempre
+ * a mesma função (escalonador_ordenar) e não sabe qual algoritmo está por
+ * trás. É o que o req. 4.2 pede: algoritmo plugável.
+ *
+ * Vale a partir do PRÓXIMO tick: as CPUs do tick atual já foram
+ * distribuídas pelo algoritmo antigo. Redistribuir agora exigiria chamar
+ * escalonar() de novo, que contaria a ociosidade das CPUs duas vezes.
+ *
+ * Quem manda é o NOME guardado no estado (que vai para cada foto); o
+ * ponteiro s->esc é só um atalho para ele. Por isso retroceder para antes
+ * da troca desfaz a troca sozinho (ver sim_retroceder). */
+int sim_trocar_algoritmo(Simulacao *s, const char *nome,
+                         char *motivo, int motivo_tam)
+{
+    const Escalonador *esc;
+
+    /* As recusas vêm antes de mexer em qualquer coisa: recusada, a
+     * simulação fica exatamente como estava. */
+    if (s->esc == NULL) /* esc só existe depois de sim_iniciar dar certo */
+    {
+        snprintf(motivo, motivo_tam, "Nenhuma simulacao carregada.");
+        return 0;
+    }
+    /* Terminada, não há "próximo tick" para o algoritmo novo valer. O
+     * req. 3.1 pede o motivo E o que fazer. */
+    if (s->terminada)
+    {
+        snprintf(motivo, motivo_tam,
+                 "A simulacao ja terminou; retroceda para trocar o algoritmo.");
+        return 0;
+    }
+    /* escalonador_buscar ignora maiúsculas ("edf" acha o EDF), como o
+     * arquivo de configuração (req. 3.3.2). */
+    esc = escalonador_buscar(nome);
+    if (esc == NULL)
+    {
+        /* A lista vem dos algoritmos registrados, não de um texto fixo: um
+         * algoritmo novo entra na mensagem sozinho (req. 4.2). */
+        char lista[128];
+        listar_algoritmos(lista, sizeof lista);
+        snprintf(motivo, motivo_tam, "O algoritmo '%s' nao existe (disponiveis: %s).",
+                 nome, lista);
+        return 0;
+    }
+
+    s->esc = esc;
+    /* Nome oficial ("edf" vira "EDF"), no estado e na foto do tick atual:
+     * a foto é o que o Gantt e o retroceder leem. Basta copiar o nome, e
+     * não clonar a foto inteira, porque ele é a única coisa que mudou. */
+    snprintf(s->atual.algoritmo, sizeof s->atual.algoritmo, "%s", esc->nome);
+    strcpy(s->historico[s->n_hist - 1].algoritmo, s->atual.algoritmo);
+    snprintf(s->ultimo_evento, sizeof s->ultimo_evento,
+             "algoritmo trocado para %s no tick %d", esc->nome, s->atual.tick);
+    return 1;
 }

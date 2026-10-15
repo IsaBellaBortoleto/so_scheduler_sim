@@ -379,6 +379,26 @@ static void rota_editar(Simulacao *sim, soquete_t c, const Pedido *p)
     responder_erros(c, &d);
 }
 
+/* POST /api/algoritmo (req. 3.1): troca o algoritmo no meio da simulação.
+ * O corpo é só o nome ("EDF"). Quem valida é o núcleo. */
+static void rota_algoritmo(Simulacao *sim, soquete_t c, const Pedido *p)
+{
+    static Diagnostico d;
+    char motivo[MAX_DIAG_TXT];
+
+    memset(&d, 0, sizeof d);
+    if (p->corpo == NULL)
+        diag_erro(&d, "nenhum algoritmo informado");
+    else if (sim_trocar_algoritmo(sim, p->corpo, motivo, sizeof motivo))
+    {
+        responder_estado(sim, c, NULL);
+        return;
+    }
+    else
+        diag_erro(&d, "%s", motivo);   /* "%s": o motivo traz texto do usuário */
+    responder_erros(c, &d);
+}
+
 /* GET /api/gantt e /api/exportar_svg (req. 2.3 e 2.4): o gráfico de Gantt
  * em SVG, desenhado pelo gantt.c. 'inteira' = 0 -> a janela da tela, os
  * últimos ticks (pelo menos GANTT_JANELA_TELA); 1 -> a simulação toda, como
@@ -454,6 +474,7 @@ static void responder_svg(soquete_t c, const Simulacao *sim, int inteira)
  *   POST /api/retroceder           -> sim_retroceder    (volta um tick)
  *   POST /api/executar_tudo        -> sim_executar_tudo (até o fim)
  *   POST /api/editar               -> rota_editar       (muda uma tarefa)
+ *   POST /api/algoritmo            -> rota_algoritmo    (troca o algoritmo)
  *   GET  /api/gantt                -> responder_svg     (janela da tela)
  *   GET  /api/exportar_svg         -> responder_svg     (simulação inteira)
  *   qualquer outra coisa           -> 404
@@ -503,6 +524,10 @@ static void atender(Simulacao *sim, soquete_t c)
     }else if (post && strcmp(p.caminho,"/api/editar") == 0)
     {
         rota_editar(sim, c, &p);
+    }
+    else if (post && strcmp(p.caminho, "/api/algoritmo") == 0)
+    {
+        rota_algoritmo(sim, c, &p);
     }
     else if (get && strcmp(p.caminho, "/api/gantt") == 0)
     {

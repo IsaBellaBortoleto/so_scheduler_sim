@@ -32,5 +32,9 @@ int  sim_editar_tarefa(Simulacao *s, int id_tarefa, const char *campo,
 void sim_liberar(Simulacao *s);
 
 int  sim_indice_por_id(const Estado *e, int id);
-
+/* Troca o algoritmo de escalonamento no meio da simulação (req. 3.1).
+ * Vale a partir do próximo tick. Devolve 1 se trocou; 0 se recusou, com
+ * o porquê em 'motivo'. */
+int sim_trocar_algoritmo(Simulacao *s, const char *nome,
+                         char *motivo, int motivo_tam);
 #endif 

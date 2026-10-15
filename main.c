@@ -561,7 +561,18 @@ static void teste_editar(void)
     assert(s.atual.tarefas[1].exec_restante == 1);
     assert(sim_editar_tarefa(&s, 1, "prazo", "7", m, sizeof m));
     assert(s.atual.tarefas[0].prazo == 7);
+
+    /* Troca de algoritmo (req. 3.1): nome oficial, recusa com a lista. */
+    assert(!sim_trocar_algoritmo(&s, "fifo", m, sizeof m) && strstr(m, "EDF"));
+    assert(sim_avancar(&s));
+    assert(sim_trocar_algoritmo(&s, "edf", m, sizeof m));
+    assert(strcmp(s.atual.algoritmo, "EDF") == 0);
+    assert(strcmp(s.historico[s.n_hist - 1].algoritmo, "EDF") == 0);
+    /* Retroceder para antes da troca desfaz a troca. */
+    assert(sim_avancar(&s) && sim_retroceder(&s) && sim_retroceder(&s));
+    assert(strcmp(s.atual.algoritmo, "RM") == 0 && s.esc == escalonador_buscar("RM"));
     sim_liberar(&s);
+    assert(!sim_trocar_algoritmo(&s, "RM", m, sizeof m)); /* nada carregado */
 
     printf("autoteste: editar tarefa ... ok\n");
 }
@@ -647,7 +658,10 @@ static void teste_estado_json(void)
     assert(estado_json_atual(&s, buf, sizeof buf) == (int)strlen(buf));
     assert(strcmp(buf, "{\"carregado\":false,\"tick\":0,\"terminada\":false,"
                        "\"algoritmo\":\"\",\"quantum\":0,\"ncpus\":0,"
-                       "\"ultimo_evento\":\"\",\"cpus\":[],\"tarefas\":[]}") == 0);
+                       "\"ultimo_evento\":\"\",\"cpus\":[],\"tarefas\":[],"
+                       "\"algoritmos\":[\"RM\",\"EDF\",\"TESTE\"]}") == 0);
+    /* "TESTE" e o algoritmo que teste_escalonador registrou: ele aparece na
+     * lista sem ninguem mexer no estado_json.c. E o req. 4.2 funcionando. */
 
     /* Depois de carregar: cabecalho, cor no formato do CSS, e o texto de
      * 'eventos' (que vem do arquivo) com as aspas escapadas. */
