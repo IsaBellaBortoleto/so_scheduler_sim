@@ -1,0 +1,7 @@
+# TESTE: empate em TODOS os criterios (4.3): mesmo prazo, ingresso e
+# duracao, e menos CPUs do que tarefas empatadas.
+# ESPERADO: a escolha e por sorteio, e o Gantt mostra a estrela no
+# instante em que a tarefa sorteada comeca a executar.
+RM;0;1
+1;E63946;0;2;10;10
+2;2A9D8F;0;2;10;10

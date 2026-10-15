@@ -1,0 +1,8 @@
+# TESTE: valores padrao (3.2). Primeira linha vazia (vale RM, quantum 2,
+# 1 CPU), cor em branco (vale a cor padrao) e prazo em branco (vale o
+# periodo).
+# ESPERADO: carrega sem erro; o cabecalho da tela mostra RM, quantum 2 e
+# 1 CPU.
+;;
+1;;0;2;6;
+2;;1;1;4

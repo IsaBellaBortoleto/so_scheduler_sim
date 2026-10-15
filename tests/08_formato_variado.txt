@@ -1,0 +1,11 @@
+﻿# TESTE: formato (3.3.2, 3.3.3, 3.3.6). Arquivo com BOM e quebras de
+# linha do Windows (CRLF), algoritmo em minusculas, linhas com e sem ';'
+# no final, espacos nos campos e linhas em branco.
+# ESPERADO: carrega sem erro, com 3 tarefas, algoritmo EDF.
+
+  edf ; 2 ; 2 ;
+
+1;E63946;0;2;6;6;
+ 2 ; 2A9D8F ; 0 ; 3 ; 9 ; 9 
+
+3;f4a261;1;2;12;10

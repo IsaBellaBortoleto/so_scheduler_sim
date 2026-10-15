@@ -1,0 +1,3 @@
+# ESPERADO: recusado. O algoritmo XYZ nao existe (so RM e EDF).
+XYZ;2;2
+1;E63946;0;2;6;6

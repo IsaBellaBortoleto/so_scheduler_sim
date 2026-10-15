@@ -1,0 +1,7 @@
+# TESTE: quantum (3.3). Quantum 2 e tarefas longas: a tarefa devolve a
+# CPU ao esgotar o quantum e volta para a fila de prontas.
+# ESPERADO: blocos de no maximo 2 ticks seguidos por tarefa quando ha
+# disputa pela CPU.
+EDF;2;1
+1;E63946;0;5;20;20
+2;2A9D8F;0;5;20;20

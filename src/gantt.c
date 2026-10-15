@@ -35,7 +35,8 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* Tipos de marcador de evento, em ordem de prioridade de exibição. */
+
+/* Tipos de marcador de evento. A prioridade de exibição fica no marca_em. */
 typedef enum {
     MARCA_NENHUMA = 0,
     MARCA_SORTEIO,     /* a tarefa venceu um desempate por sorteio (4.3-5)   */
@@ -44,25 +45,26 @@ typedef enum {
     MARCA_PRAZO        /* deadline perdido: é um ERRO e deve aparecer (3.3)  */
 } Marca;
 
-/* Descobre o evento ocorrido na tarefa `i` no instante `t`. */
-static Marca marca_em(const Simulacao *s, int t, int i)
+/* Descobre o evento ocorrido na tarefa `i` no instante `t`, comparando
+ * historico[t] com historico[t-1]. Uma célula mostra UM marcador; quando
+ * mais de um se aplica: prazo > término > chegada > sorteio. */
+static int marca_em(const Simulacao *s, int t, int i)
 {
-    /* TODO: comparar historico[t].tarefas[i] com historico[t-1].tarefas[i]
-     * (se t==0, não há "antes": só cabe checar chegada no próprio tick 0).
-     *   - se antes estava EST_INATIVA e agora não está mais -> MARCA_CHEGADA
-     *   - se antes não estava EST_INATIVA/EST_CONCLUIDA e agora está
-     *     EST_INATIVA ou EST_CONCLUIDA -> MARCA_TERMINO
-     *   - se tarefas[i].sorteada nesse tick -> MARCA_SORTEIO
-     *   - se tarefas[i].perdeu_prazo virou 1 neste tick (e não estava antes)
-     *     -> MARCA_PRAZO
-     * Escolher UMA prioridade quando mais de uma se aplica (a ordem do
-     * enum acima já sugere qual mostrar primeiro: prazo > término >
-     * chegada > sorteio, ou o critério que fizer mais sentido pro seu
-     * desenho -- o importante é escolher uma ordem e documentar). */
-    (void)s;
-    (void)t;
-    (void)i;
-    return MARCA_NENHUMA;
+    const TCB *agora = &s->historico[t].tarefas[i];
+    const TCB *antes = (t > 0) ? &s->historico[t - 1].tarefas[i] : NULL;
+    int marcas = 0;
+    if (agora->perdeu_prazo && (antes == NULL || !antes->perdeu_prazo))
+        marcas |= 1 << MARCA_PRAZO;
+    if (antes != NULL && agora->ativacoes > antes->ativacoes)
+        marcas |= 1 << MARCA_TERMINO;
+    if ((agora->estado == EST_PRONTA || agora->estado == EST_EXECUTANDO ||
+         agora->estado == EST_SUSPENSA) &&
+        agora->ativacao == t)
+        marcas |= 1 << MARCA_CHEGADA;
+    if (agora->sorteada && agora->estado == EST_EXECUTANDO &&
+        (antes == NULL || antes->estado != EST_EXECUTANDO))
+        marcas |= 1 << MARCA_SORTEIO;
+    return marcas;
 }
 
 /* Ordem das linhas: índices das tarefas ordenados por id CRESCENTE.
@@ -101,6 +103,9 @@ static void ordem_por_id(const Estado *e, int *ordem)
  * desenha com a fonte. */
 static const char *const SIMBOLO[] = { "", "★", "▲", "▼", "✖" };
 static const char *const COR_SIMBOLO[] = { "", "#8a6d00", "black", "black", "red" };
+
+static const int CANTO_DX[] = { 0, CEL_W - 3, 3, 3, CEL_W - 3 };
+static const int CANTO_DY[] = { 0, LIN_H - 3, LIN_H - 3, 10, 10 };
 
 /* Itens da legenda (requisito 2.1). 'marca' != MARCA_NENHUMA desenha o
  * símbolo do marcador em vez da amostra de preenchimento. */
@@ -212,7 +217,7 @@ int gantt_svg(const Simulacao *s, FILE *saida, int tick_ini, int tick_fim)
             const Estado *h = &s->historico[t];
             const TCB *tc = &h->tarefas[i];
             int x = MARG_E + (t - tick_ini) * CEL_W;
-            Marca m = marca_em(s, t, i);
+            int marcas = marca_em(s, t, i);
 
             if (tc->estado == EST_EXECUTANDO)
             {
@@ -234,10 +239,11 @@ int gantt_svg(const Simulacao *s, FILE *saida, int tick_ini, int tick_fim)
                 celula(saida, x, y, "url(#susp)", "black");
             /* INATIVA/CONCLUIDA: nada. */
 
-            if (m != MARCA_NENHUMA)
-                fprintf(saida, "<text x=\"%d\" y=\"%d\" text-anchor=\"middle\" "
-                               "font-size=\"9\" fill=\"%s\">%s</text>\n",
-                        x + CEL_W / 2, y + 3, COR_SIMBOLO[m], SIMBOLO[m]);
+            for (int m = MARCA_SORTEIO; m <= MARCA_PRAZO; m++)
+                if (marcas & (1 << m))
+                    fprintf(saida, "<text x=\"%d\" y=\"%d\" text-anchor=\"middle\" "
+                                   "font-size=\"8\" fill=\"%s\">%s</text>\n",
+                            x + CANTO_DX[m], y + CANTO_DY[m], COR_SIMBOLO[m], SIMBOLO[m]);
         }
     }
     free(ordem);

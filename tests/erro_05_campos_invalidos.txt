@@ -1,0 +1,8 @@
+# ESPERADO: recusado, com TODOS os erros listados de uma vez, cada um com
+# a sua linha: letra onde era numero, cor invalida, periodo negativo,
+# duracao zero.
+RM;2;2
+1;E63946;abc;2;6;6
+2;ZZZZZZ;0;2;6;6
+3;457B9D;0;2;-5;6
+4;9B5DE5;0;0;6;6

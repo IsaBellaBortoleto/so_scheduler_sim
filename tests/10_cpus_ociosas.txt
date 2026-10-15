@@ -1,0 +1,6 @@
+# TESTE: mais CPUs do que tarefas (1.2).
+# ESPERADO: as CPUs sem tarefa aparecem DESLIGADAS (hachuradas no Gantt)
+# e a tabela de CPUs conta os ticks de ociosidade.
+RM;2;4
+1;E63946;0;2;6;6
+2;2A9D8F;0;1;4;4

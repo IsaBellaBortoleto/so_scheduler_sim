@@ -1,0 +1,10 @@
+# TESTE: inanicao (starvation) no RM, 1 CPU.
+# T1 e T2 tem periodo curto (prioridade alta) e ocupam quase toda a CPU;
+# T3, de periodo longo, quase nunca consegue executar enquanto elas
+# estao ativas.
+# ESPERADO: T3 fica PRONTA (sem cor) por longos trechos e perde prazos;
+# so executa de verdade quando T1 e T2 terminam as 10 execucoes.
+RM;0;1
+1;E63946;0;1;2;2
+2;2A9D8F;0;1;3;3
+3;F4A261;0;3;12;12

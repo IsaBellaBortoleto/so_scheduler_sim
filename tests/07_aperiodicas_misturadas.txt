@@ -1,0 +1,9 @@
+# TESTE: tarefas aperiodicas no Projeto A (4.4).
+# ESPERADO: carrega; as tarefas 3 (periodo 0) e 5 (periodo em branco)
+# sao IGNORADAS, com um aviso claro para cada uma; as outras simulam.
+RM;2;2
+1;E63946;0;2;6;6
+2;2A9D8F;0;3;9;9
+3;F4A261;2;2;0;7
+4;457B9D;1;1;8;8
+5;9B5DE5;0;2;;

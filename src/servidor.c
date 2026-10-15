@@ -53,6 +53,7 @@ typedef struct {
     char   metodo[8];             /* "GET" ou "POST"                          */
     char   caminho[MAX_CAMINHO];  /* ex. "/" ou "/api/carregar"               */
     char  *corpo;                 /* dados do POST (malloc), com '\0' no fim  */
+    size_t tam_corpo;   /* quantos bytes chegaram; o corpo pode ter '\0' no meio */
 } Pedido;
 
 /* ------------------------------ etapa 1: porta ---------------------------- */
@@ -149,6 +150,7 @@ static int ler_pedido(soquete_t c, Pedido *p)
      * sem ele (o GET não manda), o tamanho é 0 e p->corpo fica NULL
      * (free(NULL) é seguro). + 15 pula o texto "Content-Length:". */
     p->corpo = NULL;
+    p->tam_corpo = 0;
     cl = strstr(cab, "Content-Length:");
     content_length = cl ? atoi(cl + 15) : 0;
     /* Teto de 1 MB: o número vem de fora e vai para o malloc. O
@@ -185,6 +187,7 @@ static int ler_pedido(soquete_t c, Pedido *p)
         /* O parser trata o arquivo como texto, e texto em C precisa
          * terminar em '\0'. */
         p->corpo[content_length] = '\0';
+        p->tam_corpo = (size_t)content_length;
     }
     return 1;
 }
@@ -283,7 +286,20 @@ static void responder_erros(soquete_t c, const Diagnostico *d)
     else
         responder(c, "200 OK", "application/json; charset=utf-8", "", json, (size_t)n);
 }
-
+/* Arquivo de texto só tem caracteres visíveis e as quebras de linha
+ * (\n, \r, \t). Byte zero ou outro caractere de controle (< 0x20) é sinal
+ * de arquivo binário: imagem, executável... (checklist da defesa).
+ * Bytes >= 0x80 passam: são o BOM e as letras acentuadas do UTF-8. */
+static int parece_texto(const char *dados, size_t tam)
+{
+    for (size_t k = 0; k < tam; k++)
+    {
+        unsigned char b = (unsigned char)dados[k];
+        if (b < 0x20 && b != '\n' && b != '\r' && b != '\t')
+            return 0;
+    }
+    return 1;
+}
 /* POST /api/carregar: o corpo do pedido é o CONTEÚDO do arquivo escolhido na
  * página (por isso funciona do pendrive: o C nunca abre caminho nenhum).
  * Deu certo -> responde o estado novo, com os avisos. Deu errado -> responde
@@ -297,6 +313,9 @@ static void rota_carregar(Simulacao *sim, soquete_t c, const Pedido *p)
     memset(&d, 0, sizeof d);
     if (p->corpo == NULL)
         diag_erro(&d, "nenhum arquivo foi enviado");
+    else if (!parece_texto(p->corpo, p->tam_corpo))
+        diag_erro(&d, "o arquivo escolhido nao e um arquivo de texto; "
+                      "escolha o .txt de configuracao");
     else
         ok = config_carregar_texto(p->corpo, &ini, &d);
 
@@ -317,7 +336,6 @@ static void rota_carregar(Simulacao *sim, soquete_t c, const Pedido *p)
     }
     responder_erros(c, &d); /* falhou: a simulação anterior continua */
 }
-
 
 /* POST /api/editar (req. 1.5.2 e 3.4): muda o estado ou um campo de uma
  * tarefa no meio da simulação. Quem VALIDA é o núcleo (sim_editar_tarefa);

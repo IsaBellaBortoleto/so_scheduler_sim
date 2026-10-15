@@ -1,0 +1,86 @@
+ARQUIVOS DE CONFIGURACAO DE TESTE
+=================================
+
+Baseados no que o professor testou na defesa do semestre anterior (relato
+de uma colega, ver docs/checklist_defesa.txt): arquivos com 10 e 50
+tarefas, arquivo feito para falhar e cenario sem solucao. Cada arquivo bom
+comeca com linhas '#' dizendo o que testa e o que se espera; o leitor do
+arquivo ignora essas linhas.
+
+Para usar: abrir o simulador, "Escolher ficheiro", "carregar".
+
+"Observado" = resultado ao rodar o arquivo inteiro ("executar tudo") em
+15/10/2026. Se mudar depois de alguma alteracao no codigo, conferir o porque.
+
+
+ARQUIVOS QUE DEVEM CARREGAR
+---------------------------
+
+01_dez_tarefas.txt          10 tarefas, RM, 2 CPUs
+                            observado: termina no tick 282, sem perda de prazo
+
+02_cinquenta_tarefas.txt    50 tarefas, EDF, 4 CPUs (o caso que derrubou a
+                            outra equipe)
+                            observado: termina no tick 922, 13 sorteios
+
+03_duzentas_tarefas.txt     200 tarefas, RM, 8 CPUs, ~4,5 KB (porte do
+                            arquivo do professor)
+                            observado: termina no tick 2748 em 0,5 s;
+                            SVG exportado com ~5,4 MB
+
+04_estouro_de_prazo.txt     carga de 120% em 1 CPU
+                            observado: termina no tick 123, com perda de
+                            prazo marcada (ver PONTO EM ABERTO abaixo)
+
+05_sorteio.txt              empate em todos os criterios do 4.3
+                            observado: 10 sorteios, estrela no Gantt
+
+06_inanicao.txt             T1 e T2 de periodo curto quase nao deixam a T3
+                            executar no RM
+                            observado: T3 fica pronta (sem cor) por longos
+                            trechos e perde prazo
+
+07_aperiodicas_misturadas.txt
+                            observado: 2 avisos (periodo 0 e periodo em
+                            branco), simula as outras 3 tarefas
+
+08_formato_variado.txt      BOM, CRLF, "edf" em minusculas, ';' final
+                            opcional, espacos, linhas em branco
+                            observado: carrega EDF com 3 tarefas
+
+09_valores_padrao.txt       primeira linha ";;", cor e prazo em branco
+                            observado: RM, quantum 2, 1 CPU
+
+10_cpus_ociosas.txt         4 CPUs para 2 tarefas
+                            observado: CPUs desligadas no Gantt e na tabela
+
+11_quantum.txt              quantum 2 com tarefas de duracao 5
+                            observado: blocos de no maximo 2 ticks na disputa
+
+
+ARQUIVOS FEITOS PARA FALHAR (devem ser recusados com mensagem clara)
+--------------------------------------------------------------------
+
+erro_01_vazio.txt                "arquivo vazio"
+erro_02_so_cabecalho.txt         "nenhuma tarefa periodica para simular"
+erro_03_algoritmo_inexistente.txt
+                                 'algoritmo "XYZ" nao existe (disponiveis: RM, EDF)'
+erro_04_zero_cpus.txt            'linha 2: qtde_cpus invalido "0" ...'
+erro_05_campos_invalidos.txt     os 4 erros de uma vez, cada um com a linha
+erro_06_id_repetido.txt          "linha 4: id 1 repetido"
+erro_07_so_aperiodicas.txt       erro + um aviso por tarefa ignorada
+erro_08_binario.txt              3000 bytes aleatorios (o "arquivo que nao e
+                                 texto"). Ver PONTO EM ABERTO abaixo.
+
+
+PONTOS EM ABERTO (encontrados com estes arquivos)
+-------------------------------------------------
+
+1. erro_08_binario.txt: e recusado, mas a mensagem mostra lixo (os bytes do
+   arquivo como se fossem o id de uma tarefa) em vez de dizer que o arquivo
+   nao e texto.
+
+2. 04_estouro_de_prazo.txt: quando uma tarefa ainda esta executando no
+   instante da proxima ativacao, essa ativacao e perdida (a T3, periodo 10,
+   foi ativada nos ticks 0, 40, 50... e nao em 10, 20 e 30). O Gantt mostra
+   um unico X de prazo perdido onde houve tres periodos sem conclusao.

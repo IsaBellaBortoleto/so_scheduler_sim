@@ -1,0 +1,8 @@
+# TESTE: carga maior que a CPU aguenta (utilizacao 1,2 em 1 CPU).
+# ESPERADO: as tarefas de menor prioridade perdem o prazo (marca X no
+# Gantt); quem perdeu o prazo CONTINUA executando ate terminar; a
+# simulacao termina sozinha, sem travar.
+RM;0;1
+1;E63946;0;2;4;4
+2;2A9D8F;0;2;5;5
+3;F4A261;0;3;10;10

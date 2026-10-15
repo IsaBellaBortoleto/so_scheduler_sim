@@ -553,6 +553,17 @@ static void teste_gantt(void)
     while (sim_avancar(&s))
         ;
     assert(gantt_svg(&s, f, 0, s.n_hist - 1) == 1);
+    {
+        /* Marcadores (marca_em): as tarefas chegam e terminam, então o
+         * desenho completo tem de trazer ▲ (chegada) e ▼ (término). */
+        static char svg[1 << 16];
+        size_t n;
+        rewind(f);
+        n = fread(svg, 1, sizeof svg - 1, f);
+        svg[n] = '\0';
+        fseek(f, 0, SEEK_END); /* ler -> escrever exige reposicionar */
+        assert(strstr(svg, ">▲<") != NULL && strstr(svg, ">▼<") != NULL);
+    }
     assert(gantt_svg(&s, f, 3, 5) == 1);
     assert(gantt_svg(&s, f, 5, 3) == 0);
     assert(gantt_svg(&s, f, 0, s.n_hist) == 0);
