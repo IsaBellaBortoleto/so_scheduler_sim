@@ -36,7 +36,9 @@
  *     -> Estado, ou { "erro": true, "motivo": string } se não havia o que fazer.
  *
  *   POST /api/editar     corpo: { "id": int, "campo": string, "valor": string }
- *     -> { "ok": true, ...Estado } ou { "ok": false, "motivo": string }.
+ *                          (nesta ordem e sem espaços: o C lê com um sscanf)
+ *     -> Estado, ou { "erro": true, "erros": [motivo], "avisos": [] } se a
+ *        edição foi recusada (mesmo formato do erro de carregamento).
  *
  *   GET /api/gantt        -> SVG pronto, só a janela dos últimos ticks
  *                            (GANTT_JANELA_TELA, em gantt.h).
@@ -373,9 +375,9 @@
     /* TODO: ev.preventDefault(); montar o corpo {id:
      * app.tarefaSelecionada, campo: els.editarCampo.value, valor:
      * els.editarValor.value} e const resp = await
-     * postJson('/api/editar', corpo). Se resp.ok: aplicarNovoEstado(resp)
-     * (que já pede o Gantt de novo) e fecharInspetor(). Se !resp.ok:
-     * mostrar resp.motivo em #inspetor-motivo, SEM fechar o painel (pra
+     * postJson('/api/editar', corpo). Se !resp.erro: aplicarNovoEstado(resp)
+     * (que já pede o Gantt de novo) e fecharInspetor(). Se resp.erro:
+     * mostrar resp.erros[0] em #inspetor-motivo, SEM fechar o painel (pra
      * o usuário poder corrigir e tentar de novo). */
   }
 

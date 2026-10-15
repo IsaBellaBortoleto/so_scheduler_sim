@@ -320,12 +320,65 @@ static void rota_carregar(Simulacao *sim, soquete_t c, const Pedido *p)
         responder(c, "200 OK", "application/json; charset=utf-8", json, (size_t)n);
 }
 
+
+/* POST /api/editar (req. 1.5.2 e 3.4): muda o estado ou um campo de uma
+ * tarefa no meio da simulação. Quem VALIDA é o núcleo (sim_editar_tarefa);
+ * esta rota só lê o pedido e devolve a resposta.
+ * Aceita -> responde o estado novo. Recusada -> responde o motivo no mesmo
+ * formato de erro do carregamento: {"erro":true,"erros":["motivo"],...}. */
+static void rota_editar(Simulacao *sim, soquete_t c, const Pedido *p)
+{
+    static Diagnostico d;       /* static: tem uns 25 KB */
+    int id;
+    char campo[32], valor[64];
+    char motivo[MAX_DIAG_TXT];  /* sim_editar_tarefa escreve aqui o porquê */
+    int n;
+
+    memset(&d, 0, sizeof d);
+
+    /* O corpo chega como {"id":3,"campo":"estado","valor":"pronta"}.
+     * %31[^"] lê tudo até a próxima aspa, no máximo 31 caracteres (o
+     * tamanho do vetor menos 1). O sscanf devolve quantos campos leu: menos
+     * de 3 é pedido quebrado.
+     * só lê o JSON exatamente nesta ordem e sem espaços, que é o
+     * que o JSON.stringify da página gera. Outro cliente precisaria de um
+     * leitor de JSON de verdade. */
+    if (p->corpo == NULL ||
+        sscanf(p->corpo, "{\"id\":%d,\"campo\":\"%31[^\"]\",\"valor\":\"%63[^\"]\"}",
+               &id, campo, valor) != 3)
+    {
+        diag_erro(&d, "pedido de edicao mal formado");
+    }
+    else if (sim_editar_tarefa(sim, id, campo, valor, motivo, sizeof motivo))
+    {
+        /* Aceita: a página recebe o estado novo e se redesenha. */
+        responder_estado(sim, c, NULL);
+        return;
+    }
+    else
+    {
+        /* "%s" e não o motivo direto como formato: ele contém texto do
+         * usuário, e um '%' digitado seria lido como formato do printf. */
+        diag_erro(&d, "%s", motivo);
+    }
+
+    n = diagnostico_json(&d, json, sizeof json);
+    if (n < 0)
+        responder_texto(c, "500 Internal Server Error", "erros demais para listar");
+    else
+        responder(c, "200 OK", "application/json; charset=utf-8", json, (size_t)n);
+}
+
 /* O ROTEADOR: lê um pedido e escolhe quem responde. Não faz o trabalho, só
  * decide; cada rota tem a sua função, logo acima.
  *
  *   GET  /, /app.js, /estilo.css   -> servir_recurso    (a página)
  *   GET  /api/estado               -> responder_estado  (o estado em JSON)
  *   POST /api/carregar             -> rota_carregar     (recebe o arquivo)
+ *   POST /api/avancar              -> sim_avancar       (um tick)
+ *   POST /api/retroceder           -> sim_retroceder    (volta um tick)
+ *   POST /api/executar_tudo        -> sim_executar_tudo (até o fim)
+ *   POST /api/editar               -> rota_editar       (muda uma tarefa)
  *   qualquer outra coisa           -> 404
  *
  * Rota nova = uma função nova e mais um "else if" aqui. */
@@ -438,12 +491,3 @@ void servidor_abrir_navegador(int porta)
     system(cmd);
 }
 
-static void rota_editar(Simulacao *sim, soquete_t c, const Pedido *p)
-{
-    int id_tarefa;
-    char campo[32];
-    char valor[64];
-
-    sscanf()
-
-}
