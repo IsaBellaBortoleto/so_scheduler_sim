@@ -27,6 +27,8 @@
  * ==========================================================================*/
 #include "kernel.h"
 
+#include <errno.h>
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -43,14 +45,17 @@ int sim_indice_por_id(const Estado *e, int id)
     return -1;
 }
 
-/* TODO (função nova, use interna): devolve 1 se TODAS as tarefas estão
- * EST_CONCLUIDA (inclusive o caso de ntarefas==0 -- vacuamente verdadeiro:
+/* Devolve 1 se TODAS as tarefas estão EST_CONCLUIDA (com ntarefas==0 também:
  * nada pra simular). Usada por sim_iniciar/sim_avancar pra decidir
  * s->terminada. */
 static int todas_concluidas(const Estado *e)
 {
-    (void)e;
-    return 0;
+    for (int i = 0; i < e->ntarefas; i++)
+    {
+        if (e->tarefas[i].estado != EST_CONCLUIDA)
+            return 0;
+    }
+    return 1;
 }
 
 /* ------------------------------- histórico ------------------------------- */
@@ -63,10 +68,6 @@ static int todas_concluidas(const Estado *e)
  * Trocar por undo-log só se a simulação precisar de milhões de ticks. */
 static void snapshot(Simulacao *s)
 {
-    /* TODO: se n_hist >= cap_hist, realloc(historico, nova_cap *
-     * sizeof(Estado)) dobrando a capacidade (comece com algo como 64).
-     * Depois: historico[n_hist] = estado_clonar(&s->atual); n_hist++. */
-
     if (s->n_hist >= s->cap_hist)
     {
         s->cap_hist = (s->cap_hist == 0) ? 64 : s->cap_hist*2;
@@ -74,50 +75,37 @@ static void snapshot(Simulacao *s)
     }
     s->historico[s->n_hist] = estado_clonar(&s->atual);
     s->n_hist++;
-    
+}
+
+/* Uma CHEGADA: a tarefa recebe uma nova execução para fazer.
+ * Usada por ativar() e pela edição INATIVA -> PRONTA. */
+static void ativar_tarefa(TCB *t, int tick)
+{
+    t->estado = EST_PRONTA;
+    t->exec_restante = t->duracao;  /* uma execução inteira pela frente */
+    t->quantum_restante = 0;        /* definido em escalonar(), ao ganhar CPU */
+    t->ativacao = tick;             /* quando ESTA execução começou       */
+    t->deadline_abs = tick + t->prazo; /* o prazo conta a partir da chegada */
+    t->perdeu_prazo = 0;
+    t->cpu = -1;
+    t->sorteada = 0;
 }
 
 /* ATIVAÇÃO — uma tarefa periódica INATIVA vira PRONTA quando o tick atual
  * cai exatamente em ingresso + k*periodo, para algum k >= 0. */
 static void ativar(Simulacao *s)
 {
-    /* TODO: para cada tarefa com estado==EST_INATIVA e periodo>0: se
-     * tick >= ingresso e (tick - ingresso) % periodo == 0, ativar:
-     *   estado = EST_PRONTA
-     *   exec_restante = duracao
-     *   quantum_restante = 0 (só é definido de verdade quando ela ganhar
-     *                          uma CPU, em escalonar())
-     *   ativacao = tick (guarda quando esta ativação começou)
-     *   deadline_abs = tick + prazo
-     *   perdeu_prazo = 0
-     *   cpu = -1
-     *   sorteada = 0
-     * Dica: vale registrar isso em s->ultimo_evento (snprintf) pra
-     * facilitar o debug/gantt. */
-
     Estado *executando = &s->atual;
     for (int i = 0; i < executando->ntarefas; i++)
     {
         TCB *tarefa = &executando->tarefas[i];
-        if(tarefa->estado == EST_INATIVA && tarefa->periodo > 0)
+        if (tarefa->estado == EST_INATIVA && tarefa->periodo > 0 &&
+            executando->tick >= tarefa->ingresso &&
+            (executando->tick - tarefa->ingresso) % tarefa->periodo == 0)
         {
-            if(executando->tick >= tarefa->ingresso && (executando->tick - tarefa->ingresso) % tarefa->periodo == 0)
-            {
-                tarefa->estado=EST_PRONTA;
-                tarefa->exec_restante = tarefa->duracao;
-                tarefa->quantum_restante=0;
-                tarefa->ativacao=executando->tick;
-                tarefa->deadline_abs = executando->tick + tarefa->prazo;
-                tarefa->perdeu_prazo = 0;
-                tarefa->cpu=-1;
-                tarefa->sorteada = 0;
-
-            }
+            ativar_tarefa(tarefa, executando->tick);
         }
     }
-    
-
-    //(void)s;
 }
 
 /* ESCALONAMENTO — requisito 1.2.
@@ -292,9 +280,6 @@ static void executar(Simulacao *s)
 
 
     }
-
-
-    //(void)s;
 }
 
 /*
@@ -302,25 +287,16 @@ static void executar(Simulacao *s)
 */
 static void verificar_prazos(Simulacao *s)
 {
-    /* TODO: para cada tarefa que não seja EST_INATIVA/EST_CONCLUIDA, se
-     * tick > deadline_abs e ainda não estava marcada (!perdeu_prazo):
-     * marcar perdeu_prazo=1 (ela continua executando normalmente depois
-     * disso -- só fica marcada pro gantt mostrar o erro, requisito 3.3). */
+    /* A tarefa continua executando normalmente depois de perder o prazo;
+     * só fica marcada pro gantt mostrar o erro (requisito 3.3). */
     Estado *executando = &s->atual;
     for (int i = 0; i < executando->ntarefas; i++)
     {
         TCB *tarefa = &executando->tarefas[i];
-        if(tarefa->estado!= EST_INATIVA && tarefa->estado!= EST_CONCLUIDA)
-        {
-            if(executando->tick > tarefa->deadline_abs && !tarefa->perdeu_prazo)
-            {
-                tarefa->perdeu_prazo=1; //Marca para visualização do gráfico
-            }
-        }
+        if (tarefa->estado != EST_INATIVA && tarefa->estado != EST_CONCLUIDA &&
+            executando->tick >= tarefa->deadline_abs)
+            tarefa->perdeu_prazo = 1;
     }
-    
-    
-     //(void)s;
 }
 
 /* ------------------------------ ciclo de vida ----------------------------- */
@@ -371,35 +347,45 @@ int sim_iniciar(Simulacao *s, Estado *inicial, Diagnostico *d)
     return 1;
 }
 
+/* AVANÇAR (req. 1.5, modo passo a passo) — executa UM tick do relógio.
+ * Devolve 1 se executou, 0 se não havia o que fazer (já terminada ou no
+ * limite de ticks). */
 int sim_avancar(Simulacao *s)
 {
-    /* TODO:
-     * 1) se s->terminada, devolver 0 (nada a fazer).
-     * 2) se s->atual.tick >= MAX_TICKS, marcar terminada=1 (rede de
-     *    segurança contra loop infinito por bug de escalonamento) e
-     *    devolver 0.
-     * 3) na ordem do comentário no topo do arquivo: executar(s);
-     *    s->atual.tick++; verificar_prazos(s); ativar(s); escalonar(s).
-     * 4) checar todas_concluidas e ajustar terminada.
-     * 5) snapshot(s).
-     * 6) devolver 1. */
-    // Se a simulação já está encerrada, interrompe o avanço sem processar o tick
-     if(s->terminada)
-    {
+    /* Simulação já encerrada: não há o que fazer. O 0 avisa quem chamou
+     * (a página não muda nada; o laço de sim_executar_tudo para). */
+    if (s->terminada)
         return 0;
-    } 
+
+    /* Rede de segurança contra simulação que nunca termina (ex.: tarefa
+     * suspensa que ninguém retoma). Corta no limite e AVISA o usuário, em
+     * vez de deixar o programa rodando sem fim. A mensagem é a mesma de
+     * sim_executar_tudo, para os dois modos avisarem igual. */
     if (s->atual.tick >= MAX_TICKS)
     {
-        s->terminada=1;
+        s->terminada = 1;
+        snprintf(s->ultimo_evento, sizeof s->ultimo_evento,
+                 "simulacao interrompida no limite de %d ticks", MAX_TICKS);
         return 0;
     }
-    executar(s);
-    s->atual.tick++;
-    verificar_prazos(s);
-    ativar(s);
-    escalonar(s);
+
+    /* Um tick, sempre nesta ordem (explicada no topo do arquivo). A ordem
+     * fixa é o que faz retroceder e avançar de novo dar o mesmo resultado. */
+    executar(s);         /* quem está nas CPUs trabalha 1 unidade       */
+    s->atual.tick++;     /* o relógio global anda (req. 1.1)            */
+    verificar_prazos(s); /* marca quem estourou o prazo                 */
+    ativar(s);           /* tarefas periódicas que vencem agora chegam  */
+    escalonar(s);        /* decide quem ocupa cada CPU a partir daqui   */
+
+    /* Fim natural (req. 4.4): todas as tarefas completaram as 10 execuções.
+     * São duas mensagens diferentes de propósito: "concluída" aqui e
+     * "interrompida" no limite, para o usuário saber qual dos dois houve. */
     s->terminada = todas_concluidas(&s->atual);
-    snapshot(s);
+    if (s->terminada)
+        snprintf(s->ultimo_evento, sizeof s->ultimo_evento,
+                 "simulacao concluida no tick %d", s->atual.tick);
+
+    snapshot(s);         /* guarda a foto deste tick (req. 1.5.2)       */
     return 1;
 }
 
@@ -449,143 +435,192 @@ void sim_executar_tudo(Simulacao *s)
 {
     /* A condição do laço é o RETORNO de sim_avancar: ela devolve 0 quando
      * não executou nenhum tick. Assim o laço nunca gira parado, o que
-     * poderia acontecer com "while (!s->terminada)". */
+     * poderia acontecer com "while (!s->terminada)". O limite de MAX_TICKS
+     * (e o aviso de que a simulação foi CORTADA) fica no próprio sim_avancar. */
     while (sim_avancar(s))
-    {
-        /* Rede de segurança: um conjunto de tarefas que nunca termina (ou
-         * um bug) pararia aqui, em vez de travar o programa. O usuário é
-         * avisado pelo "último evento" de que a simulação foi CORTADA.
-         * O "!s->terminada" evita o aviso falso quando a simulação acaba
-         * sozinha exatamente no tick do limite. */
-        if (s->atual.tick >= MAX_TICKS && !s->terminada)
-        {
-            s->terminada = 1;
-            snprintf(s->ultimo_evento, sizeof s->ultimo_evento,
-                     "simulacao interrompida no limite de %d ticks", MAX_TICKS);
-            break;
-        }
-    }
+        ;
 }
 
-int sim_editar_tarefa(Simulacao *s, int id_tarefa, const char *campo,
-                      const char *valor, char *motivo, int motivo_tam)
+/* Converte 'txt' em inteiro. Devolve 1 se o texto INTEIRO é um número
+ * ("12"), 0 se não é ("abc", "", "12x") ou não cabe num int
+ * ("99999999999"). O strtol diz onde parou de ler: se não andou nada, não
+ * havia número; se sobrou texto, não era só número. Número grande demais
+ * para um long o strtol avisa pelo errno; para um int, o teste é à mão
+ * (no Linux 64 bits o long é maior que o int). */
+static int ler_inteiro(const char *txt, int *saida)
 {
-    /* TODO:
-     * 1) achar a tarefa com sim_indice_por_id; se não existir,
-     *    snprintf(motivo, ...) explicando e devolver 0.
-     * 2) decidir quais campos são editáveis e validar cada um antes de
-     *    aplicar (requisito 3.4: edição semanticamente inválida deve ser
-     *    rejeitada com uma mensagem clara, não só ignorada). Pelo menos:
-     *      - "estado": converter o texto pro enum (INATIVA/PRONTA/
-     *        EXECUTANDO/SUSPENSA/CONCLUIDA, case-insensitive); não deixar
-     *        virar EXECUTANDO sem CPU atribuída, e liberar a CPU se sair
-     *        de EXECUTANDO pra outro estado.
-     *      - "exec_restante": número entre 0 e a duração da tarefa.
-     *      - "prazo": número >= 0 (e recalcular deadline_abs = ativacao +
-     *        prazo).
-     *    Sinta-se livre pra editar outros campos também, seguindo o
-     *    mesmo padrão (validar -> aplicar -> devolver 1, ou motivo claro
-     *    -> devolver 0).
-     * 3) campo desconhecido: motivo claro e devolver 0. */
+    char *fim;
+    long v;
+    errno = 0;
+    v = strtol(txt, &fim, 10);
+    if (fim == txt || *fim != '\0' || errno == ERANGE || v < INT_MIN || v > INT_MAX)
+        return 0;
+    *saida = (int)v;
+    return 1;
+}
 
-    /* PASSO 1: Achar a tarefa pelo ID usando o estado atual */
+static int aplicar_edicao(Simulacao *s, int id_tarefa, const char *campo,
+                          const char *valor, char *motivo, int motivo_tam)
+{
     int indice = sim_indice_por_id(&s->atual, id_tarefa);
+    TCB *tarefa;
+    int ativa;
+    int numero; /* o valor dos campos numéricos, já convertido */
+
     if (indice == -1)
     {
         snprintf(motivo, motivo_tam, "O id %d nao esta no registro", id_tarefa);
         return 0;
     }
+    tarefa = &s->atual.tarefas[indice];
+    /* "Ativa" = tem uma execução em andamento (chegou e ainda não acabou). */
+    ativa = tarefa->estado == EST_PRONTA || tarefa->estado == EST_EXECUTANDO ||
+            tarefa->estado == EST_SUSPENSA;
 
-    TCB *tarefa = &s->atual.tarefas[indice];
-
-    /* PASSO 2: Roteamento - Campo ESTADO */
+    /* ---- campo ESTADO ---- */
     if (strcmp(campo, "estado") == 0)
     {
-        /* Padronização case-insensitive (converte a entrada para MAIÚSCULAS) */
-        char valor_padrao[32];
-        int i = 0;
-        while (valor[i] != '\0' && i < (int)sizeof(valor_padrao) - 1)
-        {
-            valor_padrao[i] = toupper((unsigned char)valor[i]);
-            i++;
-        }
-        valor_padrao[i] = '\0';
-
-        /* Bloqueio de injeção direta na CPU */
-        if (strcmp(valor_padrao, "EXECUTANDO") == 0)
-        {
-            snprintf(motivo, motivo_tam, "Nao e possivel forcar estado EXECUTANDO; mude para PRONTA.");
-            return 0;
-        }
-
-        /* Tradução de String para Enum */
         int novo_estado = -1;
-        if (strcmp(valor_padrao, "PRONTA") == 0)         novo_estado = EST_PRONTA;
-        else if (strcmp(valor_padrao, "SUSPENSA") == 0)  novo_estado = EST_SUSPENSA;
-        else if (strcmp(valor_padrao, "INATIVA") == 0)   novo_estado = EST_INATIVA;
-        else if (strcmp(valor_padrao, "CONCLUIDA") == 0) novo_estado = EST_CONCLUIDA;
-        else
+
+        /* Procura o nome entre os do enum, com o mesmo estado_nome que a
+         * página mostra. str_igual_ci: "pronta", "PRONTA" e "Pronta" valem
+         * igual (a mesma função que o leitor do arquivo usa para "RM"/"rm"). */
+        for (int e = EST_INATIVA; e <= EST_CONCLUIDA; e++)
+            if (str_igual_ci(valor, estado_nome((EstadoTarefa)e)))
+                novo_estado = e;
+        if (novo_estado == -1)
         {
             snprintf(motivo, motivo_tam, "O estado '%s' nao e valido.", valor);
             return 0;
         }
-
-        /* Limpeza da CPU se a tarefa estava executando (Mão dupla) */
-        if (tarefa->estado == EST_EXECUTANDO)
+        if (novo_estado == EST_EXECUTANDO)
         {
-            int cpu_atual = tarefa->cpu;
-            if (cpu_atual >= 0 && cpu_atual < s->atual.ncpus)
-            {
-                s->atual.cpus[cpu_atual].tarefa = -1; /* Esvazia a cadeira */
-            }
-            tarefa->cpu = -1; /* Tira a chave da mão da tarefa */
+            /* Quem põe na CPU é o escalonador: forçar aqui deixaria uma
+             * tarefa "executando" sem CPU, ou furando a fila de prioridade. */
+            snprintf(motivo, motivo_tam,
+                     "Nao e possivel forcar EXECUTANDO; mude para PRONTA e o "
+                     "escalonador decide.");
+            return 0;
         }
 
-        tarefa->estado = novo_estado;
+        /* As recusas vêm ANTES de mexer em qualquer coisa: edição recusada
+         * não pode deixar nada pela metade. */
+        if (tarefa->estado == EST_CONCLUIDA)
+        {
+            /* Reabrir faria a conta passar das 10 execuções (req. 4.4). Não
+             * diz "concluiu as 10": ela pode ter sido concluída à mão. */
+            snprintf(motivo, motivo_tam,
+                     "A tarefa %d ja esta concluida e nao pode ser reaberta.", id_tarefa);
+            return 0;
+        }
+        if (tarefa->estado == EST_INATIVA && novo_estado == EST_SUSPENSA)
+        {
+            snprintf(motivo, motivo_tam,
+                     "A tarefa %d nao esta ativa; nao ha o que suspender.", id_tarefa);
+            return 0;
+        }
+
+        /* Saindo da CPU: solta dos DOIS lados (a CPU guarda a tarefa e a
+         * tarefa guarda a CPU), senão a CPU ficaria ocupada por ninguém. */
+        if (tarefa->estado == EST_EXECUTANDO)
+        {
+            if (tarefa->cpu >= 0 && tarefa->cpu < s->atual.ncpus)
+                s->atual.cpus[tarefa->cpu].tarefa = -1;
+            tarefa->cpu = -1;
+        }
+
+        /* INATIVA -> PRONTA é uma chegada antecipada: precisa de tempo
+         * restante, prazo novo etc. Só trocar o estado faria a tarefa rodar
+         * com 0 de trabalho. SUSPENSA -> PRONTA é retomar: mantém o que
+         * faltava. */
+        if (tarefa->estado == EST_INATIVA && novo_estado == EST_PRONTA)
+            ativar_tarefa(tarefa, s->atual.tick);
+        else
+            tarefa->estado = novo_estado;
         return 1;
     }
 
-    /* PASSO 3: Roteamento - Campo EXEC_RESTANTE */
-    else if (strcmp(campo, "exec_restante") == 0)
+    /* ---- campos numéricos: exec_restante e prazo ---- */
+    if (strcmp(campo, "exec_restante") != 0 && strcmp(campo, "prazo") != 0)
     {
-        int novo_exec = atoi(valor);
-        /* O tempo deve ser maior ou igual a zero E menor ou igual à duração total */
-        if (novo_exec >= 0 && novo_exec <= tarefa->duracao)
-        {
-            tarefa->exec_restante = novo_exec;
-            return 1;
-        }
-        else
-        {
-            snprintf(motivo, motivo_tam, "O valor %d nao cumpre os pre requisitos (deve ser entre 0 e %d).", novo_exec, tarefa->duracao);
-            return 0;
-        }
-    }
-
-    /* PASSO 4: Roteamento - Campo PRAZO */
-    else if (strcmp(campo, "prazo") == 0)
-    {
-        int novo_prazo = atoi(valor);
-        /* O prazo não pode ser negativo */
-        if (novo_prazo >= 0)
-        {
-            tarefa->prazo = novo_prazo;
-            tarefa->deadline_abs = tarefa->ativacao + novo_prazo; /* Recalcula com base na ativação */
-            return 1;
-        }
-        else
-        {
-            snprintf(motivo, motivo_tam, "O valor %d nao cumpre os pre requisitos (deve ser >= 0).", novo_prazo);
-            return 0;
-        }
-    }
-
-    /* PASSO 5: Campo Desconhecido */
-    else
-    {
-        snprintf(motivo, motivo_tam, "Campo '%s' nao existe ou nao permite edicao manual.", campo);
+        snprintf(motivo, motivo_tam,
+                 "Campo '%s' nao existe ou nao permite edicao manual.", campo);
         return 0;
     }
+    /* ler_inteiro e não atoi: o atoi transforma "abc" em 0 sem avisar. */
+    if (!ler_inteiro(valor, &numero))
+    {
+        snprintf(motivo, motivo_tam, "'%s' nao e um numero inteiro valido.", valor);
+        return 0;
+    }
+
+    /* ---- campo EXEC_RESTANTE (tempo que falta da execução atual) ---- */
+    if (strcmp(campo, "exec_restante") == 0)
+    {
+        /* Só existe "tempo que falta" durante uma execução. Numa tarefa
+         * INATIVA ou CONCLUIDA o valor seria apagado na próxima chegada. */
+        if (!ativa)
+        {
+            snprintf(motivo, motivo_tam,
+                     "A tarefa %d nao esta ativa; nao ha execucao em andamento.", id_tarefa);
+            return 0;
+        }
+        /* Mínimo 1, não 0: uma tarefa ativa com 0 restante ainda rodaria
+         * mais um tick e ficaria com -1. Para encerrar a execução, o certo
+         * é editar o estado. */
+        if (numero < 1 || numero > tarefa->duracao)
+        {
+            snprintf(motivo, motivo_tam,
+                     "O valor %d nao cumpre os pre requisitos (deve ser entre 1 e %d).",
+                     numero, tarefa->duracao);
+            return 0;
+        }
+        tarefa->exec_restante = numero;
+        return 1;
+    }
+
+    /* ---- campo PRAZO (o único que sobrou) ---- */
+    if (numero < 0)
+    {
+        snprintf(motivo, motivo_tam,
+                 "O valor %d nao cumpre os pre requisitos (deve ser >= 0).",
+                 numero);
+        return 0;
+    }
+    tarefa->prazo = numero;
+    /* O prazo conta a partir da chegada desta execução. */
+    tarefa->deadline_abs = tarefa->ativacao + numero;
+    /* A marca de prazo perdido acompanha o prazo novo: aumentar o prazo
+     * pode tirar a marca, diminuir pode pôr. Só vale durante uma
+     * execução; numa tarefa INATIVA o prazo novo passa a valer na
+     * próxima chegada (ativar_tarefa), e a marca não muda. */
+    if (ativa)
+        tarefa->perdeu_prazo = s->atual.tick >= tarefa->deadline_abs;
+    return 1;
+}
+
+/* EDITAR (req. 1.5.2 e 3.4) — muda o estado ou um campo de uma tarefa em
+ * qualquer passo da simulação. Devolve 1 se aceitou; 0 se recusou, com o
+ * porquê em 'motivo' (é o texto que a página mostra ao usuário).
+ *
+ * Dividida em duas: aplicar_edicao (acima) valida e aplica; esta faz o que
+ * vale para TODA edição aceita, sem repetir em cada campo. */
+int sim_editar_tarefa(Simulacao *s, int id_tarefa, const char *campo,
+                      const char *valor, char *motivo, int motivo_tam)
+{
+    if (!aplicar_edicao(s, id_tarefa, campo, valor, motivo, motivo_tam))
+        return 0;   /* recusada: nada mudou, nada a atualizar */
+
+    /* A edição pode ter concluído a simulação (ex.: a última tarefa
+     * pendente marcada como CONCLUIDA). */
+    s->terminada = todas_concluidas(&s->atual);
+
+    /* Troca a foto do tick atual pela versão editada: o Gantt é desenhado
+     * a partir do histórico, e sem isto a edição não apareceria nele.
+     * Libera a foto velha e guarda uma CÓPIA da nova, como em retroceder. */
+    estado_liberar(&s->historico[s->n_hist - 1]);
+    s->historico[s->n_hist - 1] = estado_clonar(&s->atual);
+    return 1;
 }
 
 /* LIBERAR — devolve ao sistema toda a memória da simulação e deixa 's'

@@ -53,7 +53,6 @@ typedef struct {
     char   metodo[8];             /* "GET" ou "POST"                          */
     char   caminho[MAX_CAMINHO];  /* ex. "/" ou "/api/carregar"               */
     char  *corpo;                 /* dados do POST (malloc), com '\0' no fim  */
-    size_t tam_corpo;             /* quantos bytes há em corpo                */
 } Pedido;
 
 /* ------------------------------ etapa 1: porta ---------------------------- */
@@ -114,10 +113,11 @@ static soquete_t abrir_porta(int porta)
 static int ler_pedido(soquete_t c, Pedido *p)
 {
     char cab[8192]; /* o cabeçalho; 8 KB sobra para o que o navegador manda */
-    char *fim;      /* onde o cabeçalho termina e o corpo começa            */
-    char *q;        /* posição do '?' no caminho                            */
-    int n = 0;      /* quantos bytes já estão em 'cab'                      */
-   
+    char *fim = NULL; /* onde o cabeçalho termina e o corpo começa          */
+    char *q;          /* posição do '?' no caminho                          */
+    const char *cl;   /* posição do cabeçalho Content-Length                */
+    int content_length;
+    int n = 0;        /* quantos bytes já estão em 'cab'                    */
 
     /* FASE A: ler até a linha em branco. O recv entrega os bytes em pedaços,
      * sem garantia de vir tudo de uma vez; por isso o laço, que vai juntando
@@ -129,10 +129,9 @@ static int ler_pedido(soquete_t c, Pedido *p)
             return 0; /* conexão fechada ou erro */
         n += lidos;
         cab[n] = '\0'; /* vira texto: dá para usar strstr e sscanf */
-        if (strstr(cab, "\r\n\r\n") != NULL)
+        if ((fim = strstr(cab, "\r\n\r\n")) != NULL)
             break; /* achou o fim do cabeçalho */
     }
-    fim=strstr(cab, "\r\n\r\n");
     if (fim == NULL)
         return 0; /* cabeçalho muito grande ou mal formado */   
     fim += 4; /* pula os 4 caracteres de "\r\n\r\n": aqui começa o corpo */
@@ -146,54 +145,46 @@ static int ler_pedido(soquete_t c, Pedido *p)
     if(q != NULL)
         *q='\0'; /* corta no '?': "/api/gantt?v=3" vira "/api/gantt" */
 
-    /* FASES C e D: o corpo. Só o POST tem, e o cabeçalho Content-Length diz
-     * quantos bytes são. Sem corpo, p->corpo fica NULL (free(NULL) é seguro). */
+    /* FASES C e D: o corpo. O cabeçalho Content-Length diz quantos bytes são;
+     * sem ele (o GET não manda), o tamanho é 0 e p->corpo fica NULL
+     * (free(NULL) é seguro). + 15 pula o texto "Content-Length:". */
     p->corpo = NULL;
-    p->tam_corpo = 0;
-    if (strcmp(p->metodo, "POST") == 0)
+    cl = strstr(cab, "Content-Length:");
+    content_length = cl ? atoi(cl + 15) : 0;
+    /* Teto de 1 MB: o número vem de fora e vai para o malloc. O
+     * arquivo de configuração tem poucos KB. */
+    if (content_length > 1024*1024)
+        return 0;
+    if (content_length > 0)
     {
-        const char *content_length_str = strstr(cab, "Content-Length:");
-        if (content_length_str != NULL)
-        {
-            /* + 15 pula o texto "Content-Length:"; o atoi lê o número. */
-            int content_length = atoi(content_length_str + 15);
-            /* Teto de 1 MB: o número vem de fora e vai para o malloc. O
-             * arquivo de configuração tem poucos KB. */
-            if (content_length > 1024*1024)
-                return 0;
-           if(content_length > 0)
-            {
-                /* O recv da fase A não para na linha em branco: parte do
-                 * corpo (ou ele todo) pode já estar em 'cab'. 'ja' é quantos
-                 * bytes do corpo já chegaram. Eles são copiados, e só o que
-                 * FALTA é pedido ao socket. Pedir tudo de novo travaria o
-                 * servidor, esperando bytes que já foram lidos. */
-                int ja=n-(int)(fim-cab);
-                int total_lidos;
-                if(ja > content_length)
-                    ja=content_length;
+        /* O recv da fase A não para na linha em branco: parte do
+         * corpo (ou ele todo) pode já estar em 'cab'. 'ja' é quantos
+         * bytes do corpo já chegaram. Eles são copiados, e só o que
+         * FALTA é pedido ao socket. Pedir tudo de novo travaria o
+         * servidor, esperando bytes que já foram lidos. */
+        int ja=n-(int)(fim-cab);
+        int total_lidos;
+        if(ja > content_length)
+            ja=content_length;
 
-                p->corpo = malloc(content_length + 1); /* + 1 para o '\0' */
-                if (p->corpo == NULL)
-                    return 0; /* falha de memória */
-                memcpy(p->corpo, fim, ja); /* a parte que veio com o cabeçalho */
-                total_lidos = ja;
-                while (total_lidos < content_length)
-                {
-                    int lidos = recv(c, p->corpo + total_lidos, content_length - total_lidos, 0);
-                    if (lidos <= 0)
-                    {
-                        free(p->corpo);
-                        return 0; /* conexão fechada ou erro */
-                    }
-                    total_lidos += lidos;
-                }
-                /* O parser trata o arquivo como texto, e texto em C precisa
-                 * terminar em '\0'. */
-                p->corpo[content_length] = '\0';
-                p->tam_corpo = content_length;
+        p->corpo = malloc(content_length + 1); /* + 1 para o '\0' */
+        if (p->corpo == NULL)
+            return 0; /* falha de memória */
+        memcpy(p->corpo, fim, ja); /* a parte que veio com o cabeçalho */
+        total_lidos = ja;
+        while (total_lidos < content_length)
+        {
+            int lidos = recv(c, p->corpo + total_lidos, content_length - total_lidos, 0);
+            if (lidos <= 0)
+            {
+                free(p->corpo);
+                return 0; /* conexão fechada ou erro */
             }
+            total_lidos += lidos;
         }
+        /* O parser trata o arquivo como texto, e texto em C precisa
+         * terminar em '\0'. */
+        p->corpo[content_length] = '\0';
     }
     return 1;
 }
@@ -278,6 +269,18 @@ static void responder_estado(Simulacao *sim, soquete_t c, const Diagnostico *d)
         responder(c, "200 OK", "application/json; charset=utf-8", json, (size_t)n);
 }
 
+/* Manda a lista de erros: {"erro":true,"erros":[...],"avisos":[...]}. O
+ * status é 200 porque o pedido HTTP funcionou; quem falhou foi o arquivo ou
+ * a edição, e a página sabe disso pelo campo "erro". */
+static void responder_erros(soquete_t c, const Diagnostico *d)
+{
+    int n = diagnostico_json(d, json, sizeof json);
+    if (n < 0)
+        responder_texto(c, "500 Internal Server Error", "erros demais para listar");
+    else
+        responder(c, "200 OK", "application/json; charset=utf-8", json, (size_t)n);
+}
+
 /* POST /api/carregar: o corpo do pedido é o CONTEÚDO do arquivo escolhido na
  * página (por isso funciona do pendrive: o C nunca abre caminho nenhum).
  * Deu certo -> responde o estado novo, com os avisos. Deu errado -> responde
@@ -287,7 +290,6 @@ static void rota_carregar(Simulacao *sim, soquete_t c, const Pedido *p)
     static Diagnostico d; /* static: tem uns 25 KB */
     Estado ini;
     int ok = 0;
-    int n;
 
     memset(&d, 0, sizeof d);
     if (p->corpo == NULL)
@@ -310,14 +312,7 @@ static void rota_carregar(Simulacao *sim, soquete_t c, const Pedido *p)
         responder_estado(sim, c, &d);
         return;
     }
-    /* Falhou: {"erro":true,"erros":[...],"avisos":[...]}. O status é 200
-     * porque o pedido HTTP funcionou; quem falhou foi o arquivo, e a página
-     * sabe disso pelo campo "erro". */
-    n = diagnostico_json(&d, json, sizeof json);
-    if (n < 0)
-        responder_texto(c, "500 Internal Server Error", "erros demais para listar");
-    else
-        responder(c, "200 OK", "application/json; charset=utf-8", json, (size_t)n);
+    responder_erros(c, &d); /* falhou: a simulação anterior continua */
 }
 
 
@@ -332,7 +327,6 @@ static void rota_editar(Simulacao *sim, soquete_t c, const Pedido *p)
     int id;
     char campo[32], valor[64];
     char motivo[MAX_DIAG_TXT];  /* sim_editar_tarefa escreve aqui o porquê */
-    int n;
 
     memset(&d, 0, sizeof d);
 
@@ -361,12 +355,7 @@ static void rota_editar(Simulacao *sim, soquete_t c, const Pedido *p)
          * usuário, e um '%' digitado seria lido como formato do printf. */
         diag_erro(&d, "%s", motivo);
     }
-
-    n = diagnostico_json(&d, json, sizeof json);
-    if (n < 0)
-        responder_texto(c, "500 Internal Server Error", "erros demais para listar");
-    else
-        responder(c, "200 OK", "application/json; charset=utf-8", json, (size_t)n);
+    responder_erros(c, &d);
 }
 
 /* O ROTEADOR: lê um pedido e escolhe quem responde. Não faz o trabalho, só
@@ -438,32 +427,7 @@ static void atender(Simulacao *sim, soquete_t c)
 
 /* ------------------------------ API pública ------------------------------ */
 
-int servidor_iniciar(Simulacao *sim, int porta)
-{
-    /* São DOIS sockets: 's' é o da porta, que só recebe conexões e vive o
-     * programa inteiro; 'c' é o de UMA conversa com o navegador, criado pelo
-     * accept e fechado depois de responder. */
-    soquete_t s = abrir_porta(porta);
-    if (s == SOQUETE_INVALIDO)
-        return 0; /* ex.: porta já em uso; o main avisa o usuário */
-
-    /* Só AGORA, com a porta já escutando: aberto antes, o navegador poderia
-     * pedir a página cedo demais e mostrar "conexão recusada". */
-    servidor_abrir_navegador(porta);
-
-    /* Um pedido por vez. O accept fica parado esperando alguém conectar; o
-     * laço não tem saída e só termina quando o programa é fechado. */
-    for (;;)
-    {
-        soquete_t c = accept(s, NULL, NULL);
-        if (c == SOQUETE_INVALIDO)
-            continue;
-        atender(sim, c);
-        fechar_soquete(c);
-    }
-}
-
-void servidor_abrir_navegador(int porta)
+static void servidor_abrir_navegador(int porta)
 {
     /* Abrir o navegador é pedir isso ao sistema operacional, com o mesmo
      * comando que se digitaria no terminal. O system() executa um comando de
@@ -491,3 +455,27 @@ void servidor_abrir_navegador(int porta)
     system(cmd);
 }
 
+int servidor_iniciar(Simulacao *sim, int porta)
+{
+    /* São DOIS sockets: 's' é o da porta, que só recebe conexões e vive o
+     * programa inteiro; 'c' é o de UMA conversa com o navegador, criado pelo
+     * accept e fechado depois de responder. */
+    soquete_t s = abrir_porta(porta);
+    if (s == SOQUETE_INVALIDO)
+        return 0; /* ex.: porta já em uso; o main avisa o usuário */
+
+    /* Só AGORA, com a porta já escutando: aberto antes, o navegador poderia
+     * pedir a página cedo demais e mostrar "conexão recusada". */
+    servidor_abrir_navegador(porta);
+
+    /* Um pedido por vez. O accept fica parado esperando alguém conectar; o
+     * laço não tem saída e só termina quando o programa é fechado. */
+    for (;;)
+    {
+        soquete_t c = accept(s, NULL, NULL);
+        if (c == SOQUETE_INVALIDO)
+            continue;
+        atender(sim, c);
+        fechar_soquete(c);
+    }
+}

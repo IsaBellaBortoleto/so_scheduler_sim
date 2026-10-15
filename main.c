@@ -513,6 +513,34 @@ static void teste_prazos(void)
     printf("autoteste: prazos e simulacao completa ... ok\n");
 }
 
+/* Edicao manual (req. 3.4): recusas com motivo e aceites. */
+static void teste_editar(void)
+{
+    Simulacao s;
+    char m[256];
+
+    /* Tarefa 1 ativa no tick 0; tarefa 2 so ingressa no 3 (INATIVA). */
+    iniciar_de_texto(&s, "RM;0;1\n1;;0;2;6\n2;;3;1;8");
+    assert(!sim_editar_tarefa(&s, 1, "prazo", "abc", m, sizeof m));
+    assert(!sim_editar_tarefa(&s, 1, "prazo", "99999999999", m, sizeof m));
+    assert(strstr(m, "inteiro valido"));
+    assert(!sim_editar_tarefa(&s, 1, "prazo", "-1", m, sizeof m));
+    assert(!sim_editar_tarefa(&s, 1, "cor", "1", m, sizeof m) && strstr(m, "Campo"));
+    assert(!sim_editar_tarefa(&s, 1, "estado", "executando", m, sizeof m));
+    assert(!sim_editar_tarefa(&s, 1, "estado", "xyz", m, sizeof m));
+    assert(!sim_editar_tarefa(&s, 2, "exec_restante", "1", m, sizeof m));
+
+    /* Nome do estado em minusculas vale; INATIVA -> PRONTA e chegada antecipada. */
+    assert(sim_editar_tarefa(&s, 2, "estado", "pronta", m, sizeof m));
+    assert(s.atual.tarefas[1].estado == EST_PRONTA);
+    assert(s.atual.tarefas[1].exec_restante == 1);
+    assert(sim_editar_tarefa(&s, 1, "prazo", "7", m, sizeof m));
+    assert(s.atual.tarefas[0].prazo == 7);
+    sim_liberar(&s);
+
+    printf("autoteste: editar tarefa ... ok\n");
+}
+
 /* JSON dos erros e avisos do carregamento (estado_json.h). */
 static void teste_diagnostico_json(void)
 {
@@ -629,14 +657,9 @@ static void autoteste(void)
     teste_diagnostico_json();
     teste_estado_json();
 
-    /* DESLIGADOS ate o nucleo da simulacao ficar pronto (cards da Ana):
-     * dependem de escalonar(), todas_concluidas(), sim_avancar() e
-     * verificar_prazos(). Os dois testes continuam escritos acima e servem de
-     * gabarito: quando essas funcoes existirem, basta tirar o comentario.
-     *
-     *   teste_escalonar();
-     *   teste_prazos();
-     */
+    teste_escalonar();
+    teste_prazos();
+    teste_editar();
 
     /* TODO: iniciar a simulacao com o Estado pequeno e conferir:
      *   - sim_executar_tudo termina com MAX_ATIVACOES em cada tarefa;

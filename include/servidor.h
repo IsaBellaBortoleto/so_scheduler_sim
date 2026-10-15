@@ -33,8 +33,4 @@
  * nesse caso devolve 0. */
 int servidor_iniciar(Simulacao *sim, int porta);
 
-/* Abre o navegador padrao no endereco do simulador. E chamada pelo proprio
- * servidor_iniciar, depois que a porta ja esta escutando. */
-void servidor_abrir_navegador(int porta);
-
 #endif
