@@ -444,14 +444,19 @@ async function enviarComando(url) {
      * #inspetor-titulo-id (ex. "#"+id); limpar #inspetor-motivo; mostrar
      * #painel-inspetor (hidden = false). */
     app.tarefaSelecionada = id;
-    els.inspetorTituloId("#"+id);
-    els.inspetorMotivo("");
-    els.painelInspetor(hidden = false);
+    els.inspetorTituloId.textContent ="#"+id;
+    els.inspetorMotivo.textContent = "";
+    els.painelInspetor.hidden = false;
   }
-
+/* 
+Quando o usuário clica no botão "fechar", você precisa "esquecer" 
+qual tarefa estava selecionada e esconder a caixa.
+*/
   function fecharInspetor() {
     /* TODO: app.tarefaSelecionada = null; #painel-inspetor.hidden =
      * true. */
+    app.tarefaSelecionada = null;
+    els.painelInspetor.hidden = true;
   }
 
   async function aoSubmeterEdicao(ev) {
@@ -462,6 +467,24 @@ async function enviarComando(url) {
      * (que já pede o Gantt de novo) e fecharInspetor(). Se resp.erro:
      * mostrar resp.erros[0] em #inspetor-motivo, SEM fechar o painel (pra
      * o usuário poder corrigir e tentar de novo). */
+    ev.preventDefault();
+    
+    const corpo = {
+      id: app.tarefaSelecionada,
+      campo: els.editarCampo.value,
+      valor: els.editarValor.value
+    };
+    const resp = await postJson("/api/editar", corpo);
+
+    if(!resp.erro)
+    {
+      aplicarNovoEstado(resp);
+      fecharInspetor();
+    }
+    else
+    {
+      els.inspetorMotivo.textContent = resp.erros[0];
+    }
   }
 
   /* --------------------------------- start ---------------------------------- */
