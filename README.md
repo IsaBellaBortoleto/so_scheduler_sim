@@ -7,6 +7,7 @@ Esse trabalho foi desenvolvido em três partes: A, B e C. Em seguida, segue uma 
 tivo de tempo compartilhado, com vários processadores, os algoritmos de escalona
 mento Rate Monotonic e Earliest Deadline First e a visualização da execução em
 um gráfico de Gantt.
+
   O simulador está sendo escrito em C, com a interface exibida no navegador, e
 será entregue como um único executável, que roda sem a instalação de bibliotecas
 ou programas adicionais.
