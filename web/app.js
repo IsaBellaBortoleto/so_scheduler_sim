@@ -443,6 +443,10 @@ async function enviarComando(url) {
     /* TODO: app.tarefaSelecionada = id; preencher
      * #inspetor-titulo-id (ex. "#"+id); limpar #inspetor-motivo; mostrar
      * #painel-inspetor (hidden = false). */
+    app.tarefaSelecionada = id;
+    els.inspetorTituloId("#"+id);
+    els.inspetorMotivo("");
+    els.painelInspetor(hidden = false);
   }
 
   function fecharInspetor() {
