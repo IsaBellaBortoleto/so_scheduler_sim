@@ -96,6 +96,27 @@
   };
 
   /* ------------------------------ chamadas HTTP ---------------------------- */
+//Função mensageira
+async function enviarComando(url) {
+    const response = await fetch(url, { method: 'POST' });
+    
+    // 3: Guarda o JSON convertido na variável 'estado'
+    const estado = await response.json();
+    
+    // Agora que você tem o novo estado, basta enviá-lo para a tela!
+    if(estado.tick === 0)
+    {
+      botao.disabled = false;
+    }
+    if(estado.terminada === true)
+    {
+      botao.disabled = false;
+    }
+    // Exemplo (usaremos console.log só para você ver os dados chegando primeiro):
+    console.log(estado);
+    // Atualizar a interface com o novo estado!
+    // Exemplo: desenharInterface(estadoJson);
+}
 
   async function chamarApi(caminho, opcoes) {
     /* O ÚNICO lugar que conversa com o programa em C. Manda o pedido e
