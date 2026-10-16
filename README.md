@@ -29,19 +29,19 @@ Excel:  https://alunosutfpredubr-my.sharepoint.com/:x:/g/personal/isabelabortole
 ### Compilação/Execução
 1. Primeira opção:
 Utilize-se no terminal com a pasta do projeto o seguinte comando:
-<center>
+
 |            Comando           |                    O que faz?                       |
 | ---------------------------- | --------------------------------------------------- |
 |     ``make``                 | compila e gera o simulador.exe                      |
 | ``./simulador.exe``          |  abre o simulador no navegador                      |
 | `` ./simulador.exe --teste`` |  roda os testes automaticos, sem abrir o navegador  |
-</center>
+
 2. Segunda opção:
 Se você está configurando um compilador GCC/G++ para programar em C ou C++ (por exemplo, usando o VS Code), o utilitário de compilação é diferente:
-<center>
+
 |            Comando           |                    O que faz?                       |
 | ---------------------------- | --------------------------------------------------- |
 |     ``mingw32-make``         | compila e gera o simulador.exe                      |
 | ``./simulador.exe``          |  abre o simulador no navegador                      |
 | `` ./simulador.exe --teste`` |  roda os testes automaticos, sem abrir o navegador  |
-</center>
+
