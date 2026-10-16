@@ -1,6 +1,10 @@
 # Simulador de SO Multitarefa
 Esse trabalho foi desenvolvido em três partes: A, B e C. Em seguida, segue uma explicação breve de cada parte.
 
+**Autores(as):** 
+- Isabela Bella Bortoleto
+- Ana Carolina Czelen Lipe
+
 ## Projeto A
 
   O Projeto A consiste em um simulador de sistema operacional multitarefa preemp
@@ -18,10 +22,14 @@ ou programas adicionais.
 
 ---
 ### Planejamento
-- Para a dupla se organiza foi criado um Miro, que explica a lógica de como desenvolver o projeto:  
+- Para a dupla se organiza foi criado um Miro, que explica a lógica de como desenvolver o projeto:
+   
 Miro: https://miro.com/app/board/uXjVHo9eeeY=/?share_link_id=551181145137 
+
 - Foi criado uma planilha que separa por tasks o que cada participante pode implementar:
+  
 Excel:  https://alunosutfpredubr-my.sharepoint.com/:x:/g/personal/isabelabortoleto_alunos_utfpr_edu_br/IQCACPxFc7S3TKhr4_snR5iEAXSwEwxSy0B8LMsHWLzyh5Q?e=Bi9LtZ
+
 ---
 ### Compilação/Execução
 1. Primeira opção:
@@ -30,5 +38,14 @@ Utilize-se no terminal com a pasta do projeto o seguinte comando:
 |            Comando           |                    O que faz?                       |
 | ---------------------------- | --------------------------------------------------- |
 |     ``make``                 | compila e gera o simulador.exe                      |
+| ``./simulador.exe``          |  abre o simulador no navegador                      |
+| `` ./simulador.exe --teste`` |  roda os testes automaticos, sem abrir o navegador  |
+
+2. Segunda opção:
+Se você está configurando um compilador GCC/G++ para programar em C ou C++ (por exemplo, usando o VS Code), o utilitário de compilação é diferente:
+
+|            Comando           |                    O que faz?                       |
+| ---------------------------- | --------------------------------------------------- |
+|     ``mingw32-make``         | compila e gera o simulador.exe                      |
 | ``./simulador.exe``          |  abre o simulador no navegador                      |
 | `` ./simulador.exe --teste`` |  roda os testes automaticos, sem abrir o navegador  |
