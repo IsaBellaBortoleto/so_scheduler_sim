@@ -7,14 +7,9 @@ Esse trabalho foi desenvolvido em três partes: A, B e C. Em seguida, segue uma 
 
 ## Projeto A
 
-  O Projeto A consiste em um simulador de sistema operacional multitarefa preemp
-tivo de tempo compartilhado, com vários processadores, os algoritmos de escalona
-mento Rate Monotonic e Earliest Deadline First e a visualização da execução em
-um gráfico de Gantt.
+  O Projeto A consiste em um simulador de sistema operacional multitarefa preemp tivo de tempo compartilhado, com vários processadores, os algoritmos de escalonamento Rate Monotonic e Earliest Deadline First e a visualização da execução em um gráfico de Gantt.
 
-  O simulador está sendo escrito em C, com a interface exibida no navegador, e
-será entregue como um único executável, que roda sem a instalação de bibliotecas
-ou programas adicionais.
+  O simulador está sendo escrito em C, com a interface exibida no navegador, e será entregue como um único executável, que roda sem a instalação de bibliotecas ou programas adicionais.
 
 ## Projeto B
 
