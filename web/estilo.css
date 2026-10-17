@@ -59,7 +59,10 @@ button { cursor: pointer; }
 button:hover:not(:disabled) { border-color: var(--cor-destaque); }
 button:disabled { opacity: .4; cursor: not-allowed; }
 
-#entrada-arquivo { width: 180px; }
+/* Seletor de arquivo padrão do navegador. Largo o bastante para o nome do
+ * arquivo aparecer inteiro ao lado do botão (com 180px, o navegador cortava
+ * o nome para "0...txt"). */
+#entrada-arquivo { width: 360px; }
 
 #area-diagnostico {
   padding: 10px 20px;
