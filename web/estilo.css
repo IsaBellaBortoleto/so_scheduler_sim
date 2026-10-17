@@ -99,7 +99,7 @@ button:disabled { opacity: .4; cursor: not-allowed; }
 #img-gantt { display: block; max-width: none; }
 
 #painel-lateral {
-  width: 300px;
+  width: 380px;
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
@@ -116,6 +116,37 @@ button:disabled { opacity: .4; cursor: not-allowed; }
 table { width: 100%; border-collapse: collapse; font-size: .8rem; }
 th, td { text-align: left; padding: 3px 4px; border-bottom: 1px solid var(--cor-borda); }
 th { color: var(--cor-texto-fraco); font-weight: 500; }
+/* Título com explicação (atributo data-dica): sublinhado pontilhado e cursor
+ * de ajuda, o sinal comum de "passe o mouse aqui para ver o que é".
+ * A dica é desenhada AQUI, e não com o atributo title do navegador: a do
+ * navegador só aparece depois de ~1 s com o mouse parado, e parece que não
+ * funciona. Esta aparece na hora. */
+th[data-dica] {
+  position: relative; /* a dica se posiciona em relação ao título */
+  text-decoration: underline dotted;
+  text-underline-offset: 3px;
+  cursor: help;
+}
+th[data-dica]:hover::after {
+  content: attr(data-dica); /* o texto vem do próprio atributo */
+  position: absolute;
+  top: 100%;
+  right: 0;        /* cresce para a ESQUERDA: o painel fica na borda direita da tela */
+  z-index: 10;
+  width: 220px;
+  margin-top: 4px;
+  padding: 6px 8px;
+  background: #111;
+  color: var(--cor-texto);
+  border: 1px solid var(--cor-borda);
+  border-radius: 4px;
+  font-size: .75rem;
+  font-weight: 400;
+  line-height: 1.35;
+  white-space: normal;
+  text-transform: none;
+  letter-spacing: normal;
+}
 tbody tr { cursor: pointer; }
 tbody tr:hover { background: rgba(91,141,239,.12); }
 /* Linha da tarefa aberta no painel de edicao: mostra QUAL tarefa se edita. */

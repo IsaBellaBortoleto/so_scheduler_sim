@@ -410,9 +410,12 @@
       if (tarefa.id === app.tarefaSelecionada) tr.classList.add("selecionada");
       celula(tr, tarefa.id);
       celula(tr, tarefa.estado);
+      celula(tr, tarefa.ingresso);
+      celula(tr, tarefa.duracao);
+      celula(tr, tarefa.periodo);
+      celula(tr, tarefa.prazo);
       celula(tr, tarefa.exec_restante);
       celula(tr, tarefa.ativacoes);
-      celula(tr, tarefa.prazo);
       els.tabelaTarefasBody.appendChild(tr);
     }
   }

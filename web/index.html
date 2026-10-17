@@ -69,7 +69,13 @@
     <section id="painel-cpus">
       <h2>CPUs</h2>
       <table id="tabela-cpus">
-        <thead><tr><th>CPU</th><th>tarefa</th><th>ticks ociosa</th></tr></thead>
+        <!-- data-dica: o texto que aparece ao passar o mouse sobre o titulo
+             (desenhado pelo estilo.css, ver th[data-dica]). -->
+        <thead><tr>
+          <th data-dica="número do processador">CPU</th>
+          <th data-dica="tarefa que ocupa a CPU neste tick">tarefa</th>
+          <th data-dica="quantos ticks esta CPU já passou desligada, desde o início da simulação">ticks ociosa</th>
+        </tr></thead>
         <tbody></tbody>
       </table>
     </section>
@@ -92,24 +98,34 @@
         </label>
         <button type="submit">aplicar</button>
         <button type="button" id="btn-fechar-inspetor">fechar</button>
-      </form>
-      <p id="inspetor-motivo" class="mensagem-erro"></p>
-    </section>
-
-    <section id="painel-tarefas">
-      <h2>tarefas</h2>
-      <table id="tabela-tarefas">
-        <thead>
-          <tr>
-            <th>id</th><th>estado</th><th>restante</th><th>ativações</th><th>prazo</th>
-          </tr>
-        </thead>
-        <tbody></tbody>
-      </table>
-    </section>
-
-    <section id="painel-evento">
-      <h2>último evento</h2>
+        </form>
+        <p id="inspetor-motivo" class="mensagem-erro"></p>
+        </section>
+        
+        <section id="painel-tarefas">
+          <h2>tarefas</h2>
+          <table id="tabela-tarefas">
+            <thead>
+              <tr>
+                <!-- Titulos curtos (o painel e estreito), com a notacao do
+                     capitulo de tempo real (Ci, Pi, Di); o nome completo
+                     aparece ao passar o mouse (atributo data-dica). -->
+                <th data-dica="identificador da tarefa, como no arquivo de configuração">id</th>
+                <th data-dica="estado neste tick: INATIVA, PRONTA, EXECUTANDO, SUSPENSA ou CONCLUIDA">estado</th>
+                <th data-dica="ingresso: tick em que a tarefa entra no sistema">ing.</th>
+                <th data-dica="Ci, tempo de computação: ticks de CPU que cada execução precisa">Ci</th>
+                <th data-dica="Pi, período: a cada quantos ticks chega uma execução nova">Pi</th>
+                <th data-dica="Di, prazo (deadline) relativo: em quantos ticks, contados da chegada, cada execução tem de terminar">Di</th>
+                <th data-dica="Ci restante: ticks de CPU que faltam para a execução atual terminar">Ci rest.</th>
+                <th data-dica="execuções (instâncias) já concluídas">concluídas</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </section>
+        
+        <section id="painel-evento">
+          <h2>último evento</h2>
       <p id="texto-ultimo-evento">--</p>
     </section>
   </aside>
