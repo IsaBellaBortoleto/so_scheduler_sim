@@ -111,11 +111,15 @@ th, td { text-align: left; padding: 3px 4px; border-bottom: 1px solid var(--cor-
 th { color: var(--cor-texto-fraco); font-weight: 500; }
 tbody tr { cursor: pointer; }
 tbody tr:hover { background: rgba(91,141,239,.12); }
+/* Linha da tarefa aberta no painel de edicao: mostra QUAL tarefa se edita. */
+tbody tr.selecionada { background: rgba(91,141,239,.30); outline: 1px solid var(--cor-destaque); }
 
 #form-editar { display: flex; flex-direction: column; gap: 8px; }
 #form-editar label { display: flex; flex-direction: column; gap: 4px; font-size: .78rem; color: var(--cor-texto-fraco); }
 
 .mensagem-erro { color: var(--cor-erro); font-size: .8rem; min-height: 1em; margin: 6px 0 0 0; }
+/* A mesma linha, quando a edicao foi aceita. */
+.mensagem-erro.ok { color: #3fb950; }
 
 #texto-ultimo-evento { font-size: .82rem; color: var(--cor-texto-fraco); word-break: break-word; }
 

@@ -38,6 +38,7 @@ typedef SOCKET soquete_t;
 #  include <arpa/inet.h>
 #  include <netinet/in.h>
 #  include <sys/socket.h>
+#  include <sys/time.h>   /* struct timeval, do tempo-limite de leitura */
 #  include <unistd.h>
 typedef int soquete_t;
 #  define SOQUETE_INVALIDO (-1)
@@ -548,6 +549,27 @@ static void atender(Simulacao *sim, soquete_t c)
 
 /* ------------------------------ API pública ------------------------------ */
 
+/* Tempo-limite de leitura de UMA conversa (card 5.6). O servidor atende um
+ * pedido por vez; sem isto, uma conexão que abre e não manda nada deixaria
+ * o recv da ler_pedido esperando para sempre, e ninguém mais seria atendido.
+ * Navegadores fazem isso de propósito: abrem conexões "de reserva" para o
+ * próximo clique. Com o limite, o recv desiste, a ler_pedido devolve 0 e a
+ * conexão é fechada.
+ * ponytail: 500 ms bastam aqui, porque o navegador está na mesma máquina e
+ * manda o pedido inteiro na hora; uma conexão de reserva atrasa os outros
+ * pedidos em até meio segundo. Em rede de verdade, o certo seria atender
+ * várias conexões ao mesmo tempo (select ou threads). */
+static void limitar_espera(soquete_t c)
+{
+#ifdef _WIN32
+    DWORD ms = 500; /* no Windows o valor é em milissegundos */
+    setsockopt(c, SOL_SOCKET, SO_RCVTIMEO, (const char *)&ms, sizeof ms);
+#else
+    struct timeval tv = { 0, 500000 }; /* no Linux/Mac: segundos e microssegundos */
+    setsockopt(c, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof tv);
+#endif
+}
+
 static void servidor_abrir_navegador(int porta)
 {
     /* Abrir o navegador é pedir isso ao sistema operacional, com o mesmo
@@ -596,6 +618,7 @@ int servidor_iniciar(Simulacao *sim, int porta)
         soquete_t c = accept(s, NULL, NULL);
         if (c == SOQUETE_INVALIDO)
             continue;
+        limitar_espera(c);
         atender(sim, c);
         fechar_soquete(c);
     }

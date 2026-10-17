@@ -55,7 +55,7 @@
  * ==========================================================================*/
 
 (function () {
-  "use strict";
+  ("use strict");
 
   /* Estado global do frontend. Só o tick atual: o histórico mora no C. */
   const app = {
@@ -96,28 +96,6 @@
   };
 
   /* ------------------------------ chamadas HTTP ---------------------------- */
-//Função mensageira
-async function enviarComando(url) {
-    const response = await fetch(url, { method: 'POST' });
-    
-    // 3: Guarda o JSON convertido na variável 'estado'
-    const estado = await response.json();
-    
-    // Agora que você tem o novo estado, basta enviá-lo para a tela!
-    if(estado.tick === 0)
-    {
-      botao.disabled = false;
-    }
-    if(estado.terminada === true)
-    {
-      botao.disabled = false;
-    }
-    // Exemplo (usaremos console.log só para você ver os dados chegando primeiro):
-    console.log(estado);
-    // Atualizar a interface com o novo estado!
-    // Exemplo: desenharInterface(estadoJson);
-}
-
   async function chamarApi(caminho, opcoes) {
     /* O ÚNICO lugar que conversa com o programa em C. Manda o pedido e
      * devolve a resposta já convertida de JSON para objeto.
@@ -329,10 +307,20 @@ async function enviarComando(url) {
      * rota devolve o estado novo e todas passam por aqui: a página não
      * calcula nada da simulação, só mostra o que o C mandou.
      *
-     * TODO: se o inspetor estiver aberto (app.tarefaSelecionada != null),
-     * atualizar também o que ele mostra. */
+     * Com o painel de edição aberto, o valor sugerido acompanha o estado
+     * novo (ex.: o usuário avançou um tick sem fechar o painel). */
 
     app.atual = estado;
+    if (app.tarefaSelecionada !== null) {
+      /* Outro arquivo carregado, sem essa tarefa: fecha o painel. */
+      if (estado.tarefas.some((t) => t.id === app.tarefaSelecionada)) {
+        sugerirValor();
+        /* Apaga a mensagem da edição anterior: ela falava de outro tick.
+         * (A confirmação de uma edição é escrita DEPOIS desta função.) */
+        els.inspetorMotivo.textContent = "";
+        els.inspetorMotivo.classList.remove("ok");
+      } else fecharInspetor();
+    }
     if (!estado) return;
 
     /* Cabeçalho. O rótulo vai junto ("algoritmo: RM") porque textContent
@@ -346,7 +334,7 @@ async function enviarComando(url) {
       : "em execução";
     els.textoUltimoEvento.textContent = estado.ultimo_evento || "--";
 
-    /* As tabelas estão prontas; atualizarGantt ainda é TODO. */
+    /* Tabelas e Gantt: redesenhados a cada estado novo. */
 
     atualizarTabelaCpus(estado);
     atualizarTabelaTarefas(estado);
@@ -417,6 +405,8 @@ async function enviarComando(url) {
       /* Clicar na linha abre o painel de edição daquela tarefa. A função
        * entre "() =>" só roda no clique, e lembra de qual tarefa é. */
       tr.addEventListener("click", () => abrirInspetor(tarefa.id));
+      /* Destaca a linha da tarefa aberta no painel de edição. */
+      if (tarefa.id === app.tarefaSelecionada) tr.classList.add("selecionada");
       celula(tr, tarefa.id);
       celula(tr, tarefa.estado);
       celula(tr, tarefa.exec_restante);
@@ -438,52 +428,76 @@ async function enviarComando(url) {
   }
 
   /* -------------------------------- inspetor -------------------------------- */
+  /* Painel de edição (req. 1.5.2 e 3.4): muda o estado, o tempo restante
+   * ou o prazo de uma tarefa em qualquer passo da simulação. Quem VALIDA
+   * é o C (sim_editar_tarefa); a página só manda o pedido e mostra a
+   * resposta. É também a única forma de ter uma tarefa SUSPENSA no
+   * Projeto A, porque os eventos que suspendem são do Projeto B. */
 
-  function abrirInspetor(id) {
-    /* TODO: app.tarefaSelecionada = id; preencher
-     * #inspetor-titulo-id (ex. "#"+id); limpar #inspetor-motivo; mostrar
-     * #painel-inspetor (hidden = false). */
-    app.tarefaSelecionada = id;
-    els.inspetorTituloId.textContent ="#"+id;
-    els.inspetorMotivo.textContent = "";
-    els.painelInspetor.hidden = false;
+  /* Valor sugerido (req. 3.2): o formulário mostra o valor ATUAL do campo
+   * escolhido. As opções do seletor têm os mesmos nomes dos campos da
+   * tarefa no JSON, por isso t[campo] serve para as três. Sem tarefa (ex.:
+   * outro arquivo foi carregado com o painel aberto), não faz nada. */
+  function sugerirValor() {
+    const t =
+      app.atual &&
+      app.atual.tarefas.find((x) => x.id === app.tarefaSelecionada);
+    if (!t) return;
+    const campo = els.editarCampo.value;
+    els.editarValor.value = t[campo];
+    els.editarValor.placeholder =
+      campo === "estado" ? "PRONTA, SUSPENSA, INATIVA ou CONCLUIDA" : "";
   }
-/* 
-Quando o usuário clica no botão "fechar", você precisa "esquecer" 
-qual tarefa estava selecionada e esconder a caixa.
-*/
+
+  /* Abre o painel para a tarefa clicada na tabela. Guarda QUAL tarefa é
+   * em app.tarefaSelecionada, porque o formulário só tem campo e valor. */
+  function abrirInspetor(id) {
+    app.tarefaSelecionada = id;
+    /* "T3", o mesmo nome das linhas do Gantt. */
+    els.inspetorTituloId.textContent = "T" + id;
+    els.inspetorMotivo.textContent = ""; /* apaga a mensagem da edição anterior */
+    els.inspetorMotivo.classList.remove("ok");
+    els.painelInspetor.hidden = false;
+    atualizarTabelaTarefas(app.atual); /* destaca a linha clicada */
+    els.painelInspetor.scrollIntoView({ block: "nearest" });
+    sugerirValor(); /* o formulário já abre com o valor atual (req. 3.2) */
+  }
+
+  /* Fecha o painel e "esquece" a tarefa selecionada. */
   function fecharInspetor() {
-    /* TODO: app.tarefaSelecionada = null; #painel-inspetor.hidden =
-     * true. */
     app.tarefaSelecionada = null;
     els.painelInspetor.hidden = true;
+    if (app.atual) atualizarTabelaTarefas(app.atual); /* tira o destaque */
   }
 
+  /* Botão "aplicar" do formulário. Edição aceita: a tela é redesenhada
+   * com o estado novo (Gantt incluído) e o painel fecha. Recusada: o
+   * motivo aparece no próprio painel, que FICA aberto para o usuário
+   * corrigir e tentar de novo (req. 3.4: o usuário precisa saber por que
+   * a edição não pôde ser feita). */
   async function aoSubmeterEdicao(ev) {
-    /* TODO: ev.preventDefault(); montar o corpo {id:
-     * app.tarefaSelecionada, campo: els.editarCampo.value, valor:
-     * els.editarValor.value} e const resp = await
-     * postJson('/api/editar', corpo). Se !resp.erro: aplicarNovoEstado(resp)
-     * (que já pede o Gantt de novo) e fecharInspetor(). Se resp.erro:
-     * mostrar resp.erros[0] em #inspetor-motivo, SEM fechar o painel (pra
-     * o usuário poder corrigir e tentar de novo). */
+    /* Sem isto, o navegador "enviaria" o formulário do jeito antigo e
+     * recarregaria a página inteira. */
     ev.preventDefault();
-    
+
+    /* O C lê este corpo com um sscanf: a ordem id, campo, valor importa
+     * (ver rota_editar em servidor.c). */
     const corpo = {
       id: app.tarefaSelecionada,
       campo: els.editarCampo.value,
-      valor: els.editarValor.value
+      valor: els.editarValor.value,
     };
     const resp = await postJson("/api/editar", corpo);
 
-    if(!resp.erro)
-    {
+    if (!resp.erro) {
+      /* Aceita: o painel FICA aberto (o usuário pode querer outra edição
+       * na mesma tarefa) e confirma em verde; "fechar" fecha. */
       aplicarNovoEstado(resp);
-      fecharInspetor();
-    }
-    else
-    {
+      els.inspetorMotivo.textContent = "alteração aplicada no tick " + resp.tick;
+      els.inspetorMotivo.classList.add("ok");
+    } else {
       els.inspetorMotivo.textContent = resp.erros[0];
+      els.inspetorMotivo.classList.remove("ok");
     }
   }
 
@@ -497,5 +511,7 @@ qual tarefa estava selecionada e esconder a caixa.
   els.formEditar.addEventListener("submit", aoSubmeterEdicao);
   els.btnFecharInspetor.addEventListener("click", fecharInspetor);
   els.selAlgoritmo.addEventListener("change", aoTrocarAlgoritmo);
+  /* Trocar o campo no painel (estado -> prazo...) troca o valor sugerido. */
+  els.editarCampo.addEventListener("change", sugerirValor);
   aoAbrirPagina();
 })();

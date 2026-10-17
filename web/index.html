@@ -74,18 +74,8 @@
       </table>
     </section>
 
-    <section id="painel-tarefas">
-      <h2>tarefas</h2>
-      <table id="tabela-tarefas">
-        <thead>
-          <tr>
-            <th>id</th><th>estado</th><th>restante</th><th>ativações</th><th>prazo</th>
-          </tr>
-        </thead>
-        <tbody></tbody>
-      </table>
-    </section>
-
+    <!-- Painel de edicao ANTES da tabela de tarefas: com ~190 tarefas a
+         tabela fica longa, e embaixo dela o painel sairia da tela. -->
     <section id="painel-inspetor" hidden>
       <h2>editar tarefa <span id="inspetor-titulo-id"></span></h2>
       <form id="form-editar">
@@ -103,6 +93,18 @@
         <button type="button" id="btn-fechar-inspetor">fechar</button>
       </form>
       <p id="inspetor-motivo" class="mensagem-erro"></p>
+    </section>
+
+    <section id="painel-tarefas">
+      <h2>tarefas</h2>
+      <table id="tabela-tarefas">
+        <thead>
+          <tr>
+            <th>id</th><th>estado</th><th>restante</th><th>ativações</th><th>prazo</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
     </section>
 
     <section id="painel-evento">
