@@ -86,11 +86,13 @@
       <h2>editar tarefa <span id="inspetor-titulo-id"></span></h2>
       <form id="form-editar">
         <label>campo
+          <!-- O texto segue a notacao do livro, na ordem da tabela de
+               tarefas; o value e o nome do campo no C e no JSON. -->
           <select id="editar-campo">
             <option value="estado">estado</option>
-            <option value="exec_restante">exec_restante</option>
-            <option value="prazo">prazo</option>
-            <option value="duracao">duracao</option>
+            <option value="duracao">Ci (tempo de computação)</option>
+            <option value="exec_restante">Ci rest. (tempo restante)</option>
+            <option value="prazo">Di (prazo)</option>
           </select>
         </label>
         <label>valor
