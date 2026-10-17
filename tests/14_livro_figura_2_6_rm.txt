@@ -1,0 +1,7 @@
+# TESTE: exemplo da Figura 2.6 do capitulo 2: o mesmo conjunto no RM e no
+# EDF. A: C=10, P=20 | B: C=25, P=50 (prazo = periodo). Utilizacao 100%.
+# Neste arquivo: RM. ESPERADO (livro, caso b): B PERDE o prazo em t=50
+# (X no Gantt). Troque para EDF no seletor, ou use o arquivo _edf.
+RM;0;1
+1;E63946;0;10;20;20
+2;2A9D8F;0;25;50;50

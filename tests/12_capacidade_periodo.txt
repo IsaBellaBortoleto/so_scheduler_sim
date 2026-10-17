@@ -1,0 +1,12 @@
+# TESTE: conjunto proposto pela equipe, RM, 1 CPU, quantum 0 (sem limite).
+# T1: C=3, P=20 | T2: C=2, P=5 | T3: C=2, P=10 (prazo = periodo).
+# Utilizacao = 3/20 + 2/5 + 2/10 = 0,75, abaixo do limite do RM para 3
+# tarefas (0,78): escalonavel, nenhum prazo perdido.
+# Prioridade RM (menor periodo primeiro): T2 > T3 > T1.
+# ESPERADO nos primeiros 20 ticks: T2 [0,2) T3 [2,4) T1 [4,5)
+# T2 [5,7) (preempta T1) T1 [7,9) T2 [10,12) T3 [12,14) T2 [15,17).
+# Para comparar com o EDF: troque o algoritmo no seletor da pagina.
+RM;0;1
+1;E63946;0;3;20;20
+2;2A9D8F;0;2;5;5
+3;F4A261;0;2;10;10

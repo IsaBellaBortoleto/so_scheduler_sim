@@ -121,7 +121,38 @@ static void ordem_por_id(const Estado *e, int *ordem)
  * (UTF-8), não desenhos: o SVG vai com charset=utf-8 e o navegador os
  * desenha com a fonte. */
 static const char *const SIMBOLO[] = { "", "★", "▲", "▼", "✖" };
-static const char *const COR_SIMBOLO[] = { "", "#8a6d00", "black", "black", "red" };
+static const char *const COR_SIMBOLO[] = { "", "#fca311", "black", "black", "red" };
+
+/* CONTORNO de cada símbolo: o marcador fica por cima do bloco da tarefa,
+ * cuja cor vem do arquivo e pode ser qualquer uma; sem contorno, um ▲ preto
+ * some sobre uma tarefa escura e um ✖ vermelho sobre uma vermelha.
+ * Os escuros ganham contorno branco. A estrela amarela ganha contorno
+ * escuro: com contorno branco ela sumiria nas células brancas (pronta) e no
+ * fundo do gráfico. */
+static const char *const CONTORNO_SIMBOLO[] = { "", "#5a3a00", "white", "white", "white" };
+
+/* Cor do destaque do sorteio (req. 4.3): a célula sorteada ganha uma borda
+ * desta cor, além da estrela. É o evento mais raro do gráfico e o
+ * enunciado pede que ele apareça; a borda o torna visível de longe. */
+#define COR_SORTEIO "#fca311"
+
+/* Escreve o símbolo do marcador m centrado em (x, y), com o contorno.
+ * paint-order="stroke": pinta o contorno ANTES do preenchimento, então ele
+ * fica em volta da letra em vez de cobri-la. */
+static void simbolo(FILE *f, int x, int y, int m, int tamanho)
+{
+    fprintf(f, "<text x=\"%d\" y=\"%d\" text-anchor=\"middle\" font-size=\"%d\" "
+               "fill=\"%s\" stroke=\"%s\" stroke-width=\"2\" paint-order=\"stroke\">%s</text>\n",
+            x, y, tamanho, COR_SIMBOLO[m], CONTORNO_SIMBOLO[m], SIMBOLO[m]);
+}
+
+/* Borda de destaque de uma célula sorteada (também usada na legenda). */
+static void borda_sorteio(FILE *f, int x, int y, int largura, int altura)
+{
+    fprintf(f, "<rect x=\"%d\" y=\"%d\" width=\"%d\" height=\"%d\" fill=\"none\" "
+               "stroke=\"%s\" stroke-width=\"2\"/>\n",
+            x, y, largura, altura, COR_SORTEIO);
+}
 
 static const int CANTO_DX[] = { 0, CEL_W - 3, 3, 3, CEL_W - 3 };
 static const int CANTO_DY[] = { 0, LIN_H - 3, LIN_H - 3, 10, 10 };
@@ -259,11 +290,13 @@ int gantt_svg(const Simulacao *s, FILE *saida, int tick_ini, int tick_fim)
                 celula(saida, x, y, "url(#susp)", "black");
             /* INATIVA/CONCLUIDA: nada. */
 
+            /* Sorteio: a borda vem ANTES dos símbolos, para eles ficarem
+             * por cima dela. Mesma posição e tamanho da célula. */
+            if (marcas & (1 << MARCA_SORTEIO))
+                borda_sorteio(saida, x, y + 2, CEL_W, LIN_H - 4);
             for (int m = MARCA_SORTEIO; m <= MARCA_PRAZO; m++)
                 if (marcas & (1 << m))
-                    fprintf(saida, "<text x=\"%d\" y=\"%d\" text-anchor=\"middle\" "
-                                   "font-size=\"8\" fill=\"%s\">%s</text>\n",
-                            x + CANTO_DX[m], y + CANTO_DY[m], COR_SIMBOLO[m], SIMBOLO[m]);
+                    simbolo(saida, x + CANTO_DX[m], y + CANTO_DY[m], m, 8);
         }
     }
     free(ordem);
@@ -302,8 +335,13 @@ int gantt_svg(const Simulacao *s, FILE *saida, int tick_ini, int tick_fim)
                            "fill=\"%s\" stroke=\"#555\"/>\n",
                     x, y, LEGENDA[k].fill);
         else
-            fprintf(saida, "<text x=\"%d\" y=\"%d\" text-anchor=\"middle\" fill=\"%s\">%s</text>\n",
-                    x + 6, y + 10, COR_SIMBOLO[LEGENDA[k].marca], SIMBOLO[LEGENDA[k].marca]);
+        {
+            /* Na legenda, o sorteio aparece como no gráfico: a célula com a
+             * borda de destaque e a estrela dentro. */
+            if (LEGENDA[k].marca == MARCA_SORTEIO)
+                borda_sorteio(saida, x, y, 12, 12);
+            simbolo(saida, x + 6, y + 10, LEGENDA[k].marca, 11);
+        }
         fprintf(saida, "<text x=\"%d\" y=\"%d\">%s</text>\n", x + 17, y + 10, LEGENDA[k].texto);
     }
 

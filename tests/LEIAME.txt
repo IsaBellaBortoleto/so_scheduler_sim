@@ -61,6 +61,29 @@ ARQUIVOS QUE DEVEM CARREGAR
                             observado: blocos de no maximo 2 ticks na disputa
 
 
+12_capacidade_periodo.txt   T1 C=3 P=20, T2 C=2 P=5, T3 C=2 P=10; RM, 1 CPU
+                            observado: T2[0,2) T3[2,4) T1[4,5) T2[5,7)
+                            T1[7,9) livre[9,10) T2[10,12) T3[12,14)...
+                            (repete a cada 20); nenhum prazo perdido; fim
+                            no tick 183
+
+13_livro_tabela_2_1_rm.txt  Tabela 2.1 / Figura 2.5 do capitulo 2 (RM)
+                            observado: igual ao livro: T1[0,20) T2[20,60)
+                            T3[60,100) T1[100,120) T3[120,150) T2[150,190)
+                            T3[190,200) T1[200,220) T3[220,240); nenhum
+                            prazo perdido
+
+14_livro_figura_2_6_rm.txt  Figura 2.6, caso (b): RM
+                            observado: igual ao livro: a T2 (tarefa B) perde
+                            o prazo em t=50
+
+14_livro_figura_2_6_edf.txt Figura 2.6, caso (a): EDF
+                            observado: igual ao livro: T2 termina em t=45,
+                            T1[45,55); nenhum prazo perdido
+
+(No livro as tarefas se chamam A, B e C; aqui sao T1, T2 e T3.)
+
+
 ARQUIVOS FEITOS PARA FALHAR (devem ser recusados com mensagem clara)
 --------------------------------------------------------------------
 

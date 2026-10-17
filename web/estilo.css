@@ -83,9 +83,13 @@ button:disabled { opacity: .4; cursor: not-allowed; }
 
 #area-gantt { flex: 1; min-width: 0; }
 
+/* Fundo BRANCO, o mesmo do SVG: quando o gráfico é mais estreito que a
+ * área (simulação curta), a sobra à direita continua a "folha" do gráfico,
+ * em vez de virar um retângulo cinza. O SVG não é esticado para preencher
+ * a área: ampliado, o texto e as células mudariam de tamanho a cada passo. */
 #gantt-scroll {
   overflow-x: auto;
-  background: var(--cor-painel);
+  background: #fff;
   border: 1px solid var(--cor-borda);
   border-radius: 6px;
 }

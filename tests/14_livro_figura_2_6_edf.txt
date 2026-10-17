@@ -1,0 +1,7 @@
+# TESTE: exemplo da Figura 2.6 do capitulo 2, caso (a): EDF.
+# A: C=10, P=20 | B: C=25, P=50. Utilizacao 100%: o EDF consegue.
+# ESPERADO (livro): nenhum prazo perdido; em t=40 o B (prazo 50) passa
+# na frente do A (prazo 60) e termina em t=45.
+EDF;0;1
+1;E63946;0;10;20;20
+2;2A9D8F;0;25;50;50

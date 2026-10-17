@@ -1,0 +1,10 @@
+# TESTE: exemplo da Tabela 2.1 / Figura 2.5 do capitulo 2 (Escalonamento
+# de Tempo Real): escala RM de 3 tarefas periodicas, 1 CPU.
+# A: C=20, P=100 | B: C=40, P=150 | C: C=100, P=350 (prazo = periodo).
+# Utilizacao 0,753 <= 0,779: escalonavel pelo RM.
+# ESPERADO (como no livro): A [0,20) B [20,60) C [60,100); A preempta C
+# em t=100; C volta em 120 e e interrompida por B em 150 e por A em 200.
+RM;0;1
+1;E63946;0;20;100;100
+2;2A9D8F;0;40;150;150
+3;F4A261;0;100;350;350
