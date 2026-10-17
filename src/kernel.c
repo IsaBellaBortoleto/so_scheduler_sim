@@ -538,8 +538,9 @@ static int aplicar_edicao(Simulacao *s, int id_tarefa, const char *campo,
         return 1;
     }
 
-    /* ---- campos numéricos: exec_restante e prazo ---- */
-    if (strcmp(campo, "exec_restante") != 0 && strcmp(campo, "prazo") != 0)
+    /* ---- campos numéricos: exec_restante, duracao e prazo ---- */
+    if (strcmp(campo, "exec_restante") != 0 && strcmp(campo, "duracao") != 0 &&
+        strcmp(campo, "prazo") != 0)
     {
         snprintf(motivo, motivo_tam,
                  "Campo '%s' nao existe ou nao permite edicao manual.", campo);
@@ -555,6 +556,12 @@ static int aplicar_edicao(Simulacao *s, int id_tarefa, const char *campo,
     /* ---- campo EXEC_RESTANTE (tempo que falta da execução atual) ---- */
     if (strcmp(campo, "exec_restante") == 0)
     {
+        /* Limite: a duração da execução EM ANDAMENTO. Se a duração foi
+         * editada (vale só para a próxima chegada), a execução atual pode
+         * ter mais tempo restante do que a duração nova; até esse valor
+         * também é aceito. */
+        int maximo = tarefa->duracao > tarefa->exec_restante ? tarefa->duracao
+                                                             : tarefa->exec_restante;
         /* Só existe "tempo que falta" durante uma execução. Numa tarefa
          * INATIVA ou CONCLUIDA o valor seria apagado na próxima chegada. */
         if (!ativa)
@@ -566,17 +573,31 @@ static int aplicar_edicao(Simulacao *s, int id_tarefa, const char *campo,
         /* Mínimo 1, não 0: uma tarefa ativa com 0 restante ainda rodaria
          * mais um tick e ficaria com -1. Para encerrar a execução, o certo
          * é editar o estado. */
-        if (numero < 1 || numero > tarefa->duracao)
+        if (numero < 1 || numero > maximo)
         {
             snprintf(motivo, motivo_tam,
                      "O valor %d nao cumpre os pre requisitos (deve ser entre 1 e %d).",
-                     numero, tarefa->duracao);
+                     numero, maximo);
             return 0;
         }
         tarefa->exec_restante = numero;
         return 1;
     }
-
+    /* ---- campo DURACAO ---- */
+    if (strcmp(campo, "duracao") == 0)
+    {
+        if (numero < 1)
+        {
+            /* Mesma regra do arquivo de configuração: duração >= 1. */
+            snprintf(motivo, motivo_tam,
+                     "O valor %d nao cumpre os pre requisitos (deve ser >= 1).", numero);
+            return 0;
+        }
+        /* Vale a partir da PRÓXIMA chegada (ativar_tarefa lê este campo). A
+         * execução em andamento continua com o tempo restante que tinha. */
+        tarefa->duracao = numero;
+        return 1;
+    }
     /* ---- campo PRAZO (o único que sobrou) ---- */
     if (numero < 0)
     {

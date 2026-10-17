@@ -33,4 +33,9 @@
  * nesse caso devolve 0. */
 int servidor_iniciar(Simulacao *sim, int porta);
 
+/* Abre o navegador padrao no endereco do simulador. Chamada pelo proprio
+ * servidor_iniciar, depois que a porta ja esta escutando, e pelo main
+ * quando a porta ja esta ocupada por outra janela do simulador. */
+void servidor_abrir_navegador(int porta);
+
 #endif

@@ -574,6 +574,31 @@ static void teste_editar(void)
     sim_liberar(&s);
     assert(!sim_trocar_algoritmo(&s, "RM", m, sizeof m)); /* nada carregado */
 
+    /* Duracao (req. 1.5.2, "caracteristicas"): vale a partir da PROXIMA
+     * chegada; a execucao em andamento nao muda. */
+    iniciar_de_texto(&s, "RM;0;1\n1;;0;3;10;10");
+    assert(s.atual.tarefas[0].exec_restante == 3);
+    assert(!sim_editar_tarefa(&s, 1, "duracao", "0", m, sizeof m));   /* < 1 */
+    assert(!sim_editar_tarefa(&s, 1, "duracao", "abc", m, sizeof m)); /* texto */
+    assert(sim_editar_tarefa(&s, 1, "duracao", "5", m, sizeof m));
+    assert(s.atual.tarefas[0].duracao == 5);
+    assert(s.atual.tarefas[0].exec_restante == 3); /* a atual nao mudou */
+
+    /* Avanca ate a proxima chegada (periodo 10): a execucao nova ja vem
+     * com a duracao nova. */
+    while (s.atual.tick < 10)
+        assert(sim_avancar(&s));
+    assert(s.atual.tarefas[0].exec_restante == 5);
+
+    /* O limite do tempo restante e a duracao da execucao EM ANDAMENTO:
+     * com duracao 2 e 5 restantes, o restante 4 tem de ser aceito, e o 6
+     * (mais que os 5 da execucao atual) recusado. */
+    assert(sim_editar_tarefa(&s, 1, "duracao", "2", m, sizeof m));
+    assert(sim_editar_tarefa(&s, 1, "exec_restante", "4", m, sizeof m));
+    assert(s.atual.tarefas[0].exec_restante == 4);
+    assert(!sim_editar_tarefa(&s, 1, "exec_restante", "6", m, sizeof m));
+    sim_liberar(&s);
+
     printf("autoteste: editar tarefa ... ok\n");
 }
 
@@ -816,13 +841,9 @@ int main(int argc, char **argv)
      * exatamente como esse sinal. */
     memset(&sim, 0, sizeof sim);
 
-    /* Se o navegador nao abrir sozinho (antivirus, navegador padrao nao
-     * configurado), esta linha e a unica forma de o usuario descobrir onde
-     * entrar -- a janela do console e a unica interface garantida. O fflush
-     * garante que ela apareca antes de o servidor prender o programa. */
-    printf("Simulador em http://127.0.0.1:%d/\n", porta);
-    printf("Deixe esta janela aberta; feche-a para encerrar.\n");
-    fflush(stdout);
+    /* O endereco ("Simulador em http://...") e impresso pelo proprio
+     * servidor_iniciar, so DEPOIS de a porta abrir: impresso aqui, ele
+     * apareceria tambem quando a porta esta ocupada e o programa vai fechar. */
 
     /* O navegador NAO e aberto aqui: quem abre e o proprio servidor_iniciar,
      * depois que a porta ja esta escutando. Aberto antes, o navegador poderia
@@ -830,13 +851,18 @@ int main(int argc, char **argv)
      *
      * servidor_iniciar so retorna se NAO conseguiu abrir a porta (devolve 0);
      * quando consegue, fica atendendo pedidos ate o programa ser fechado. */
+
     if (!servidor_iniciar(&sim, porta)) {
-        fprintf(stderr,
-                "Nao foi possivel abrir a porta %d: ela ja esta em uso, "
-                "provavelmente por outra janela do simulador.\n"
-                "Feche a outra janela e tente de novo.\n", porta);
+        /* Porta ocupada: quase sempre e outra janela do simulador, que ja
+         * esta servindo a pagina. Em vez de so reclamar (com dois cliques a
+         * janela fecharia antes de dar para ler), abre o navegador nessa
+         * pagina. Caso raro: se quem ocupa a 8080 for OUTRO programa, o
+         * navegador mostra a pagina dele ou um erro. */
+        printf("O simulador ja esta aberto em outra janela; "
+               "abrindo a pagina dele no navegador.\n");
+        servidor_abrir_navegador(porta);
         sim_liberar(&sim);
-        return 1;
+        return 0;
     }
 
     sim_liberar(&sim);

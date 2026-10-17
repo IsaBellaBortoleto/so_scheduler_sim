@@ -570,7 +570,7 @@ static void limitar_espera(soquete_t c)
 #endif
 }
 
-static void servidor_abrir_navegador(int porta)
+void servidor_abrir_navegador(int porta)
 {
     /* Abrir o navegador é pedir isso ao sistema operacional, com o mesmo
      * comando que se digitaria no terminal. O system() executa um comando de
@@ -606,6 +606,15 @@ int servidor_iniciar(Simulacao *sim, int porta)
     soquete_t s = abrir_porta(porta);
     if (s == SOQUETE_INVALIDO)
         return 0; /* ex.: porta já em uso; o main avisa o usuário */
+
+    /* A porta abriu: só agora é verdade que esta janela é o simulador. Se
+     * o navegador não abrir sozinho (antivírus, navegador padrão não
+     * configurado), esta linha é a única forma de o usuário descobrir onde
+     * entrar. O fflush garante que ela apareça antes de o laço prender o
+     * programa. */
+    printf("Simulador em http://127.0.0.1:%d/\n", porta);
+    printf("Deixe esta janela aberta; feche-a para encerrar.\n");
+    fflush(stdout);
 
     /* Só AGORA, com a porta já escutando: aberto antes, o navegador poderia
      * pedir a página cedo demais e mostrar "conexão recusada". */

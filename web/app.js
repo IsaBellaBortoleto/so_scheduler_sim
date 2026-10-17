@@ -345,6 +345,7 @@
     els.btnRetroceder.disabled = !(estado.tick > 0);
     els.btnAvancar.disabled = estado.terminada;
     els.btnExecutarTudo.disabled = estado.terminada;
+    
     /* Opções do seletor: montadas uma vez, a partir da lista do C. */
     if (els.selAlgoritmo.options.length === 0)
       for (const nome of estado.algoritmos || []) {

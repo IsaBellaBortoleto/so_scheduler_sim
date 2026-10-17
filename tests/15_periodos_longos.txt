@@ -1,0 +1,14 @@
+# TESTE: periodos longos x limite de 5000 ticks da simulacao (MAX_TICKS,
+# em kernel.h). Uma tarefa periodica termina depois de 10 execucoes; a
+# 10a execucao de uma tarefa de periodo P chega em ingresso + 9*P.
+# Aqui a T4 tem periodo 800: a 10a chegada e no tick 7200, depois do
+# limite. A T3 (600) chega pela 10a vez em 5400, tambem depois.
+# ESPERADO HOJE: a simulacao para no tick 5000 com o aviso
+# "simulacao interrompida no limite de 5000 ticks", com T3 e T4 sem
+# completar as 10 execucoes (ver a coluna 'ativacoes' na tabela).
+# Utilizacao baixa (0,23): nao e falta de CPU, e so o limite de tempo.
+RM;0;1
+1;E63946;0;20;200;200
+2;2A9D8F;0;30;400;400
+3;F4A261;0;40;600;600
+4;457B9D;0;50;800;800
