@@ -5,16 +5,18 @@
 #include "kernel.h"
 
 /* Serializa o estado do tick ATUAL (s->atual) para JSON: cabecalho, tabela
- * de CPUs, tabela de tarefas e ultimo evento. O formato esta documentado no
- * topo de web/app.js.
+ * de CPUs, tabela de tarefas, ultimo evento e a lista "algoritmos" (os
+ * escalonadores registrados, para o seletor da pagina; um algoritmo novo
+ * aparece nela sozinho, req. 4.2). O formato esta documentado no topo de
+ * web/app.js.
  *
  * O Gantt NAO vai no JSON: ele vem pronto como SVG (ver gantt.h). Por isso a
  * pagina nao precisa mais do historico de ticks, e a antiga
  * estado_json_historico() foi removida.
  *
  * Tamanho: com o arquivo de teste do professor (~4 KB, ~190 tarefas), o JSON
- * fica na casa de 60 KB. Quem chama deve comecar com um buffer de pelo menos
- * 64 KB e dobrar enquanto a funcao devolver -1.
+ * fica na casa de 60 KB. O servidor usa um buffer fixo de 256 KB e, se
+ * mesmo assim nao couber (-1), responde um erro 500 claro.
  *
  * Retorna o numero de bytes escritos (sem o '\0'), ou -1 se 'buf' for
  * pequeno demais -- nesse caso nao escreve nada pela metade, porque um JSON

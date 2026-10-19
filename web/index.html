@@ -1,4 +1,11 @@
 <!doctype html>
+<!-- ===========================================================================
+     index.html - a tela do simulador.
+     So a ESTRUTURA da pagina: quem preenche os campos e as tabelas e o
+     app.js, com o JSON que vem do C; o grafico de Gantt chega pronto, em SVG.
+     Este arquivo vai DENTRO do simulador.exe (o make o converte em bytes, ver
+     ferramentas/gerar_recursos.c): a pagina nao precisa de pasta ao lado.
+     ======================================================================== -->
 <html lang="pt-br">
 <head>
 <meta charset="utf-8">
@@ -8,6 +15,9 @@
 </head>
 <body>
 
+<!-- Cabecalho: os dados gerais da simulacao. Comeca com "--" (nada
+     carregado); o app.js preenche com os campos algoritmo, quantum, ncpus,
+     tick e terminada do JSON a cada resposta do C. -->
 <header id="cabecalho">
   <h1>Simulador de Escalonamento Multitarefa</h1>
   <div id="info-execucao">
@@ -19,6 +29,9 @@
   </div>
 </header>
 
+<!-- Barra de controles. Cada botao chama uma rota do C (/api/...). Os de
+     simulacao comecam desativados ('disabled') e so sao ligados depois que
+     um arquivo e carregado: antes disso nao ha o que avancar. -->
 <section id="barra-controles">
   <div class="grupo-controle">
     <label for="entrada-arquivo">arquivo de configuração</label>
@@ -29,6 +42,8 @@
     <input type="file" id="entrada-arquivo">
     <button id="btn-carregar">carregar</button>
   </div>
+  <!-- Os dois modos do req. 1.5: passo a passo (avancar/retroceder) e
+       completo (executar tudo). Exportar baixa o SVG da simulacao inteira. -->
   <div class="grupo-controle">
     <button id="btn-retroceder" disabled>&larr; retroceder</button>
     <button id="btn-avancar" disabled>avançar &rarr;</button>
@@ -43,6 +58,8 @@
   </div>
 </section>
 
+<!-- Mensagens (req. 3.3.6 e 5): escondida ('hidden') ate haver algo a
+     dizer. Erros em vermelho, avisos em amarelo (cores no estilo.css). -->
 <section id="area-diagnostico" hidden>
   <!-- Titulo geral de proposito: aqui aparecem os erros do arquivo, mas
        tambem a falta de resposta do programa, que nao e culpa do arquivo. -->
@@ -51,6 +68,8 @@
   <ul id="lista-avisos" class="lista-diagnostico avisos"></ul>
 </section>
 
+<!-- Area principal: o Gantt a esquerda, ocupando o espaco que sobra; os
+     paineis de inspecao (req. 1.5.1) numa coluna fixa a direita. -->
 <main id="area-principal">
 
   <section id="area-gantt">
@@ -76,6 +95,7 @@
           <th data-dica="tarefa que ocupa a CPU neste tick">tarefa</th>
           <th data-dica="quantos ticks esta CPU já passou desligada, desde o início da simulação">ticks ociosa</th>
         </tr></thead>
+        <!-- Linhas criadas pelo app.js (atualizarTabelaCpus), uma por CPU. -->
         <tbody></tbody>
       </table>
     </section>
@@ -122,10 +142,14 @@
                 <th data-dica="execuções (instâncias) já concluídas">concluídas</th>
               </tr>
             </thead>
+            <!-- Linhas criadas pelo app.js (atualizarTabelaTarefas), uma
+                 por tarefa; clicar numa linha abre o painel de edicao. -->
             <tbody></tbody>
           </table>
         </section>
         
+        <!-- A ultima mensagem do nucleo (ultimo_evento no JSON): simulacao
+             concluida, interrompida no limite, retrocedeu, algoritmo trocado. -->
         <section id="painel-evento">
           <h2>último evento</h2>
       <p id="texto-ultimo-evento">--</p>
@@ -134,6 +158,8 @@
 
 </main>
 
+<!-- Script no FIM do body: quando ele roda, todos os elementos acima ja
+     existem e o app.js pode encontra-los pelo id. -->
 <script src="/app.js"></script>
 </body>
 </html>

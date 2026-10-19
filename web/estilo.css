@@ -1,3 +1,10 @@
+/* ============================================================================
+ * estilo.css — a aparência da página (só visual: nenhuma regra da simulação)
+ * Vai DENTRO do simulador.exe, como o index.html e o app.js.
+ * ==========================================================================*/
+
+/* Paleta escura em variáveis: cada cor é definida uma vez e usada pelo
+ * nome (var(--cor-erro)); trocar a cor aqui troca na página inteira. */
 :root {
   --cor-fundo: #1e1e24;
   --cor-painel: #2a2a33;
@@ -9,8 +16,11 @@
   --cor-aviso: #e6b93c;
 }
 
+/* Largura de um elemento INCLUI a borda e o espaçamento interno: um painel
+ * de 380px ocupa 380px, sem somar o padding por fora. */
 * { box-sizing: border-box; }
 
+/* Fonte do próprio sistema: nada a baixar da internet. */
 body {
   margin: 0;
   font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
@@ -19,10 +29,14 @@ body {
   font-size: 14px;
 }
 
+/* h1 = título da página; h2 = título de cada painel, pequeno e em
+ * maiúsculas, para não competir com o conteúdo. */
 h1, h2 { margin: 0 0 .5em 0; font-weight: 600; }
 h1 { font-size: 1.1rem; }
 h2 { font-size: .85rem; text-transform: uppercase; letter-spacing: .04em; color: var(--cor-texto-fraco); }
 
+/* Cabeçalho: título à esquerda, dados da simulação à direita (flex com
+ * space-between); em tela estreita os dados descem para a linha de baixo. */
 #cabecalho {
   padding: 12px 20px;
   border-bottom: 1px solid var(--cor-borda);
@@ -33,9 +47,13 @@ h2 { font-size: .85rem; text-transform: uppercase; letter-spacing: .04em; color:
   gap: 8px;
 }
 
+/* tabular-nums: todos os algarismos com a mesma largura, para o número do
+ * tick não "pular" de lugar quando muda (ex.: de 9 para 10). */
 #info-execucao { display: flex; gap: 16px; font-variant-numeric: tabular-nums; color: var(--cor-texto-fraco); }
 #info-execucao span { white-space: nowrap; }
 
+/* Barra de controles: os grupos lado a lado, quebrando linha se faltar
+ * espaço. */
 #barra-controles {
   padding: 10px 20px;
   border-bottom: 1px solid var(--cor-borda);
@@ -46,6 +64,8 @@ h2 { font-size: .85rem; text-transform: uppercase; letter-spacing: .04em; color:
 
 .grupo-controle { display: flex; gap: 8px; align-items: center; }
 
+/* Botões e campos com a mesma cara da página. 'font: inherit' porque o
+ * navegador não herda a fonte nesses elementos por conta própria. */
 button, input, select {
   font: inherit;
   background: var(--cor-painel);
@@ -55,6 +75,8 @@ button, input, select {
   padding: 6px 10px;
 }
 
+/* Botão desativado (antes de carregar um arquivo) fica apagado e com o
+ * cursor de "proibido", para ficar claro que não dá para clicar. */
 button { cursor: pointer; }
 button:hover:not(:disabled) { border-color: var(--cor-destaque); }
 button:disabled { opacity: .4; cursor: not-allowed; }
@@ -64,6 +86,8 @@ button:disabled { opacity: .4; cursor: not-allowed; }
  * o nome para "0...txt"). */
 #entrada-arquivo { width: 360px; }
 
+/* Área de mensagens com fundo avermelhado, para chamar atenção; erros em
+ * vermelho e avisos em amarelo (as duas listas de Diagnostico). */
 #area-diagnostico {
   padding: 10px 20px;
   background: #2a1f1f;
@@ -74,6 +98,7 @@ button:disabled { opacity: .4; cursor: not-allowed; }
 .lista-diagnostico.erros li { color: var(--cor-erro); }
 .lista-diagnostico.avisos li { color: var(--cor-aviso); }
 
+/* Gantt e painel lateral lado a lado. */
 #area-principal {
   display: flex;
   gap: 16px;
@@ -81,6 +106,9 @@ button:disabled { opacity: .4; cursor: not-allowed; }
   align-items: flex-start;
 }
 
+/* flex: 1 = o Gantt fica com todo o espaço que o painel lateral deixa.
+ * min-width: 0 é o que permite a rolagem horizontal: sem ele, um gráfico
+ * largo esticaria a área e empurraria o painel para fora da tela. */
 #area-gantt { flex: 1; min-width: 0; }
 
 /* Fundo BRANCO, o mesmo do SVG: quando o gráfico é mais estreito que a
@@ -98,6 +126,8 @@ button:disabled { opacity: .4; cursor: not-allowed; }
    #gantt-scroll. Sem max-width, senao o navegador encolhe o grafico. */
 #img-gantt { display: block; max-width: none; }
 
+/* Coluna da direita com largura fixa (flex-shrink: 0 = não encolhe), com
+ * os painéis empilhados: CPUs, edição, tarefas, último evento. */
 #painel-lateral {
   width: 380px;
   flex-shrink: 0;
@@ -113,6 +143,8 @@ button:disabled { opacity: .4; cursor: not-allowed; }
   padding: 10px 12px;
 }
 
+/* Tabelas compactas (letra menor, pouco espaçamento): com ~190 tarefas a
+ * tabela de tarefas fica longa. */
 table { width: 100%; border-collapse: collapse; font-size: .8rem; }
 th, td { text-align: left; padding: 3px 4px; border-bottom: 1px solid var(--cor-borda); }
 th { color: var(--cor-texto-fraco); font-weight: 500; }
@@ -147,20 +179,28 @@ th[data-dica]:hover::after {
   text-transform: none;
   letter-spacing: normal;
 }
+/* A linha sob o mouse fica destacada: sinal de que dá para clicar (na
+ * tabela de tarefas, o clique abre o painel de edição). */
 tbody tr { cursor: pointer; }
 tbody tr:hover { background: rgba(91,141,239,.12); }
 /* Linha da tarefa aberta no painel de edicao: mostra QUAL tarefa se edita. */
 tbody tr.selecionada { background: rgba(91,141,239,.30); outline: 1px solid var(--cor-destaque); }
 
+/* Painel de edição: um campo embaixo do outro, cada título acima do seu. */
 #form-editar { display: flex; flex-direction: column; gap: 8px; }
 #form-editar label { display: flex; flex-direction: column; gap: 4px; font-size: .78rem; color: var(--cor-texto-fraco); }
 
+/* Resposta do C à edição, embaixo do formulário. min-height reserva a
+ * linha mesmo vazia, para o painel não "pular" quando a mensagem aparece. */
 .mensagem-erro { color: var(--cor-erro); font-size: .8rem; min-height: 1em; margin: 6px 0 0 0; }
 /* A mesma linha, quando a edicao foi aceita. */
 .mensagem-erro.ok { color: #3fb950; }
 
+/* break-word: uma mensagem longa quebra a linha em vez de alargar o painel. */
 #texto-ultimo-evento { font-size: .82rem; color: var(--cor-texto-fraco); word-break: break-word; }
 
+/* Janela estreita (menos de 800px): o painel lateral desce para baixo do
+ * Gantt e ocupa a largura toda, em vez de espremer o gráfico. */
 @media (max-width: 800px) {
   #area-principal { flex-direction: column; }
   #painel-lateral { width: 100%; }

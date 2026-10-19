@@ -31,9 +31,12 @@
 #define GANTT_JANELA_TELA 60
 
 /* Escreve em 'saida' o SVG dos ticks [tick_ini, tick_fim] do historico.
- *   - tela ao vivo:  tick_ini = max(0, tick_atual - GANTT_JANELA_TELA + 1),
- *                    tick_fim = tick_atual
- *   - exportacao:    tick_ini = 0, tick_fim = n_hist - 1
+ *   - tela ao vivo:  os ultimos ticks, ate o tick atual (a janela, ver
+ *                    responder_svg em servidor.c)
+ *   - exportacao:    tick_ini = 0, tick_fim = o ultimo tick da simulacao.
+ *                    Se ela ainda nao terminou, o servidor desenha uma
+ *                    COPIA levada ate o fim (sim_copiar_ate_o_fim, em
+ *                    kernel.c): a imagem e sempre a simulacao inteira.
  *
  * Recebe FILE* (e nao um caminho) porque quem chama decide o destino: o
  * servidor precisa dos bytes para mandar pelo socket, o autoteste grava num

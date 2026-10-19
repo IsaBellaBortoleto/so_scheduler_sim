@@ -6,12 +6,13 @@
  *
  *   Formato "Estado" devolvido por GET /api/estado, POST /api/carregar,
  *   POST /api/avancar, POST /api/retroceder, POST /api/executar_tudo,
- *   POST /api/editar (em caso de sucesso):
+ *   POST /api/editar e POST /api/algoritmo (em caso de sucesso):
  *   {
  *     "carregado": bool,   (false = nenhum arquivo carregado ainda)
  *     "tick": int, "terminada": bool,
  *     "algoritmo": string, "quantum": int, "ncpus": int,
  *     "ultimo_evento": string,
+ *     "algoritmos": [string...],  (os registrados no C, para o seletor)
  *     "cpus":    [ { "id": int, "tarefa": int (-1 = nenhuma), "ticks_desligada": int } ],
  *     "tarefas": [ {
  *         "id": int, "cor": "#RRGGBB",
@@ -33,16 +34,22 @@
  *     falha   -> { "erro": true, "erros": [string...], "avisos": [string...] }
  *
  *   POST /api/avancar, /api/retroceder, /api/executar_tudo   (sem corpo)
- *     -> Estado, ou { "erro": true, "motivo": string } se não havia o que fazer.
+ *     -> sempre o Estado. Se não havia o que fazer (simulação já terminada,
+ *        ou já no tick 0), o Estado volta igual.
  *
  *   POST /api/editar     corpo: { "id": int, "campo": string, "valor": string }
  *                          (nesta ordem e sem espaços: o C lê com um sscanf)
  *     -> Estado, ou { "erro": true, "erros": [motivo], "avisos": [] } se a
  *        edição foi recusada (mesmo formato do erro de carregamento).
  *
+ *   POST /api/algoritmo  corpo: o nome do algoritmo, em texto ("EDF")
+ *     -> Estado, ou { "erro": true, "erros": [motivo], "avisos": [] } se a
+ *        troca foi recusada (nome inexistente, simulação já terminada).
+ *
  *   GET /api/gantt        -> SVG pronto, só a janela dos últimos ticks
- *                            (GANTT_JANELA_TELA, em gantt.h).
- *   GET /api/exportar_svg -> SVG da simulação INTEIRA, para download.
+ *                            (pelo menos GANTT_JANELA_TELA, em gantt.h).
+ *   GET /api/exportar_svg -> SVG da simulação INTEIRA, do tick 0 ao fim,
+ *                            para download (mesmo exportando no meio).
  *
  * SEM HISTÓRICO NO CLIENTE (opção A, ver gantt.h): quem desenha o Gantt é o
  * C, a partir do histórico que ele já guarda (req. 1.5.2). Esta página só
@@ -432,15 +439,17 @@
   }
 
   /* -------------------------------- inspetor -------------------------------- */
-  /* Painel de edição (req. 1.5.2 e 3.4): muda o estado, o tempo restante
-   * ou o prazo de uma tarefa em qualquer passo da simulação. Quem VALIDA
+  /* Painel de edição (req. 1.5.2 e 3.4): muda o estado, Ci (duração), Ci
+   * rest. (tempo restante) ou Di (prazo) de uma tarefa em qualquer passo da
+   * simulação. Quem VALIDA
    * é o C (sim_editar_tarefa); a página só manda o pedido e mostra a
    * resposta. É também a única forma de ter uma tarefa SUSPENSA no
    * Projeto A, porque os eventos que suspendem são do Projeto B. */
 
   /* Valor sugerido (req. 3.2): o formulário mostra o valor ATUAL do campo
    * escolhido. As opções do seletor têm os mesmos nomes dos campos da
-   * tarefa no JSON, por isso t[campo] serve para as três. Sem tarefa (ex.:
+   * tarefa no JSON (o 'value' de cada opção), por isso t[campo] serve para
+   * os quatro. Sem tarefa (ex.:
    * outro arquivo foi carregado com o painel aberto), não faz nada. */
   function sugerirValor() {
     const t =
@@ -475,10 +484,10 @@
   }
 
   /* Botão "aplicar" do formulário. Edição aceita: a tela é redesenhada
-   * com o estado novo (Gantt incluído) e o painel fecha. Recusada: o
-   * motivo aparece no próprio painel, que FICA aberto para o usuário
-   * corrigir e tentar de novo (req. 3.4: o usuário precisa saber por que
-   * a edição não pôde ser feita). */
+   * com o estado novo (Gantt incluído) e a confirmação aparece em verde.
+   * Recusada: o motivo aparece em vermelho (req. 3.4: o usuário precisa
+   * saber por que a edição não pôde ser feita). Nos dois casos o painel
+   * FICA aberto: para outra edição ou para corrigir e tentar de novo. */
   async function aoSubmeterEdicao(ev) {
     /* Sem isto, o navegador "enviaria" o formulário do jeito antigo e
      * recarregaria a página inteira. */

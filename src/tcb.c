@@ -21,28 +21,21 @@
 #include <stdlib.h>
 #include <string.h>
 
+/* Copia PROFUNDA de um Estado: os campos simples e tambem o conteudo dos
+ * vetores de tarefas e de CPUs. Se faltar memoria, o vetor que falhou volta
+ * NULL com o contador em 0 (nunca ntarefas > 0 com tarefas == NULL); quem
+ * chama confere comparando os contadores com os do original. */
 Estado estado_clonar(const Estado *e)
 {
-    /* TODO:
-     * 1- copia = *e -- copia os campos escalares de uma vez (inclui o
-     *    array fixo algoritmo[16]).
-     * 2- zera copia.tarefas e copia.cpus antes de mais nada, pra nao
-     *    correr risco de "return" cedo demais deixar ponteiro lixo.
-     * 3- se e->ntarefas > 0: malloc(ntarefas * sizeof(TCB)) e memcpy do
-     *    conteudo de e->tarefas. Cuidado: TCB.eventos e um array fixo
-     *    dentro da struct, entao memcpy da struct inteira ja copia o
-     *    conteudo dele tambem (nao e um ponteiro separado).
-     * 4- mesma ideia pra copia.cpus, com e->ncpus.
-     * 5) se algum malloc falhar, deixar o campo correspondente em 0/NULL
-     *    de forma consistente (nao deixar ntarefas>0 com tarefas==NULL). */
-    
-    
+     /* '=' copia os campos simples de uma vez (inclusive algoritmo[16]). Os
+      * dois ponteiros sao zerados logo em seguida: os vetores serao NOVOS. */
      Estado copia = *e;
      copia.tarefas = NULL;
      copia.cpus = NULL;
      if(e->ntarefas > 0)
      {
-      //Para caso a váriável *e->tarefas altere o seu tamanho com inserção de dados
+      /* memcpy das structs inteiras: TCB.eventos e um vetor DENTRO da
+       * struct (nao um ponteiro), entao o texto vem junto. */
         copia.tarefas = malloc(e->ntarefas*sizeof(*e->tarefas));
       if (copia.tarefas != NULL)
       {
@@ -63,57 +56,47 @@ Estado estado_clonar(const Estado *e)
             copia.ncpus = 0;
         }
      }
-    //(void)e;
     return copia;
 }
 
+/* Libera os vetores de um Estado e o deixa zerado. Pode ser chamada duas
+ * vezes sobre o mesmo Estado: na segunda os ponteiros ja sao NULL, e nada e
+ * liberado de novo (liberar a mesma memoria duas vezes derruba o programa). */
 void estado_liberar(Estado *e)
 {
-    /* TODO: free(e->tarefas), free(e->cpus), e depois zerar os ponteiros
-     * e os contadores (ntarefas=0, ncpus=0) pra tornar seguro chamar
-     * estado_liberar duas vezes sobre o mesmo Estado (nao deve dar
-     * double-free). */
     if (e->tarefas != NULL)
     {
-            
         free(e->tarefas);
-        //Prevenção para que ocorra um double free
         e->tarefas = NULL;
     }
     if (e->cpus != NULL)
     {
-        
         free(e->cpus);
-        //Prevenção para que ocorra um double free
         e->cpus = NULL;
     }
     e->ntarefas = 0;
     e->ncpus = 0;
-    //(void)e;
 }
 
-/* Nome legivel do estado, usado no inspetor de tarefas (requisito 1.5.1) e
- * nas mensagens de erro de edicao manual (requisito 3.4). */
+/* Nome legivel do estado: o texto da coluna "estado" da pagina (requisito
+ * 1.5.1) e o que se digita na edicao manual (requisito 3.4). */
 const char *estado_nome(EstadoTarefa e)
 {
     switch (e) {
-        case EST_INATIVA:    
+        case EST_INATIVA:
             return "INATIVA";
-        case EST_PRONTA:     
+        case EST_PRONTA:
             return "PRONTA";
-        case EST_EXECUTANDO: 
+        case EST_EXECUTANDO:
             return "EXECUTANDO";
-        case EST_SUSPENSA:   
+        case EST_SUSPENSA:
             return "SUSPENSA";
-        case EST_CONCLUIDA:  
+        case EST_CONCLUIDA:
             return "CONCLUIDA";
 
     }
-    /* TODO: o switch acima já cobre todos os valores do enum, mas o
-     * compilador não sabe disso com certeza (um int fora do range
-     * poderia, em teoria, ser convertido pra EstadoTarefa) -- acrescente
-     * um `return` de segurança aqui embaixo (ex. "DESCONHECIDO") pra
-     * -Wall não reclamar de "control reaches end of non-void function". */
-    //Garantindo caso a variável "e" tenha um valor inválido, retorne um valor default, assim assegura que não venha um lixo da memória.
+    /* O switch cobre todo o enum, mas um valor invalido (memoria estragada)
+     * cairia aqui: devolve um texto em vez de lixo, e o -Wall nao reclama
+     * de funcao sem return. */
     return "DESCONHECIDO";
 }

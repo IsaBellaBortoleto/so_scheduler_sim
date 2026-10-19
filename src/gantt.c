@@ -36,7 +36,9 @@
 #include <string.h>
 
 
-/* Tipos de marcador de evento. A prioridade de exibição fica no marca_em. */
+/* Tipos de marcador de evento. O valor de cada um é o número do bit dele no
+ * resultado de marca_em (1 << MARCA_x), e a posição nos vetores SIMBOLO,
+ * COR_SIMBOLO e CANTO_DX/DY. */
 typedef enum {
     MARCA_NENHUMA = 0,
     MARCA_SORTEIO,     /* a tarefa venceu um desempate por sorteio (4.3-5)   */
@@ -45,9 +47,10 @@ typedef enum {
     MARCA_PRAZO        /* deadline perdido: é um ERRO e deve aparecer (3.3)  */
 } Marca;
 
-/* Descobre o evento ocorrido na tarefa `i` no instante `t`, comparando
- * historico[t] com historico[t-1]. Uma célula mostra UM marcador; quando
- * mais de um se aplica: prazo > término > chegada > sorteio. */
+/* Descobre os eventos da tarefa `i` no instante `t`, comparando
+ * historico[t] com historico[t-1]. Devolve um conjunto de bits (1 << MARCA_x
+ * para cada evento): um tick pode ter mais de um (ex.: término e chegada
+ * juntos), e TODOS aparecem, cada um no seu canto da célula. */
 static int marca_em(const Simulacao *s, int t, int i)
 {
     const TCB *agora = &s->historico[t].tarefas[i];
@@ -154,6 +157,10 @@ static void borda_sorteio(FILE *f, int x, int y, int largura, int altura)
             x, y, largura, altura, COR_SORTEIO);
 }
 
+/* Posição de cada marcador dentro da célula (na ordem do enum Marca): um
+ * canto para cada, para vários eventos no mesmo tick não se cobrirem.
+ *   sorteio: inferior direito    chegada: inferior esquerdo
+ *   término: superior esquerdo   prazo:   superior direito */
 static const int CANTO_DX[] = { 0, CEL_W - 3, 3, 3, CEL_W - 3 };
 static const int CANTO_DY[] = { 0, LIN_H - 3, LIN_H - 3, 10, 10 };
 

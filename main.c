@@ -840,24 +840,12 @@ static void autoteste(void)
     teste_editar();
     teste_gantt();
 
-    /* TODO: iniciar a simulacao com o Estado pequeno e conferir:
-     *   - sim_executar_tudo termina com MAX_ATIVACOES em cada tarefa;
-     *   - DETERMINISMO: retroceder 2 ticks e avancar 2 volta exatamente ao
-     *     mesmo estado (e a garantia da qual o requisito 1.5.2 depende);
-     *   - sim_editar_tarefa RECUSA uma edicao invalida (ex. prazo 0) e
-     *     preenche o motivo (req. 3.4);
-     *   - gantt_svg devolve 1 para a simulacao inteira (0..n_hist-1) e
-     *     para uma janela, e 0 para um intervalo invalido (tick_ini >
-     *     tick_fim). Grave num arquivo de nome fixo na pasta atual com
-     *     fopen e apague com remove() -- tmpfile() falha no Windows (ver
-     *     gantt.h).
-     *
-     * TODO: depois que estado_json.c existir, conferir tambem que
-     * estado_json_atual devolve -1 com um buffer pequeno demais em vez de
-     * escrever pela metade -- e o contrato documentado em estado_json.h, e
-     * um JSON cortado quebraria a pagina sem mensagem nenhuma.
-     *
-     * No fim: sim_liberar e um printf dizendo que tudo passou. */
+    /* Cada bateria imprime "... ok" quando passa; um assert que falha para
+     * o programa na hora, com o arquivo e a linha.
+     * Ainda nao coberto: DETERMINISMO direto (retroceder 2 ticks e avancar
+     * 2 volta ao mesmo estado). Hoje e garantido pela ordem fixa do tick e
+     * pelo sorteio sem rand(), e conferido em parte pela copia ate o fim de
+     * teste_gantt, que chega ao mesmo fim da simulacao real. */
 }
 
 /* ========================================================================== */

@@ -19,12 +19,17 @@
  *                                  ter BOM e CRLF). Ler Content-Length
  *                                  bytes, terminar com '\0' e passar para
  *                                  config_carregar_texto (config.h).
- *   POST /api/avancar, /api/retroceder, /api/executar_tudo, /api/editar
- *   GET  /api/gantt                SVG da JANELA atual (gantt.h,
- *                                  GANTT_JANELA_TELA ticks)
- *   GET  /api/exportar_svg         SVG da simulacao INTEIRA, com cabecalho
- *                                  Content-Disposition: attachment para o
- *                                  navegador baixar (req. 2.4)
+ *   POST /api/avancar, /api/retroceder, /api/executar_tudo
+ *                                  sem corpo; respondem o estado novo
+ *   POST /api/editar               CORPO = {"id":3,"campo":"prazo","valor":"7"};
+ *                                  estado novo, ou o motivo da recusa
+ *   POST /api/algoritmo            CORPO = o nome ("EDF"); troca o algoritmo
+ *                                  a partir do proximo tick (req. 3.1)
+ *   GET  /api/gantt                SVG da JANELA da tela (os ultimos ticks,
+ *                                  pelo menos GANTT_JANELA_TELA)
+ *   GET  /api/exportar_svg         SVG da simulacao INTEIRA, do tick 0 ao
+ *                                  fim, com Content-Disposition: attachment
+ *                                  para o navegador baixar (req. 2.4)
  *
  * 'sim' precisa continuar valido durante toda a vida do servidor.
  *

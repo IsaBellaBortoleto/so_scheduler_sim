@@ -323,9 +323,11 @@ static void executar(Simulacao *s)
     }
 }
 
-/*
-* REQUISITO: 2.6: Implementar a verificação de estouro de prazo (deadline) por tarefa
-*/
+/* PRAZOS — marca a execução que chegou ao prazo absoluto (chegada + Di)
+ * sem terminar. Roda logo DEPOIS do tick++, então "tick >= deadline_abs"
+ * pega o instante exato do prazo (req. 2.2): com ">" uma execução que ainda
+ * roda no tick do prazo e termina no seguinte nunca seria marcada. Quem
+ * termina exatamente no prazo já está INATIVA e não é marcada (cumpriu). */
 static void verificar_prazos(Simulacao *s)
 {
     /* A tarefa continua executando normalmente depois de perder o prazo;
@@ -743,7 +745,8 @@ void sim_liberar(Simulacao *s)
 {
     /* Cada foto do histórico tem os SEUS vetores de tarefas e de CPUs: é
      * preciso liberar uma por uma antes de liberar o vetor de fotos. Com
-     * 190 tarefas e 5000 ticks, são centenas de MB que voltam aqui. */
+     * ~190 tarefas são uns 60 KB por foto: milhares de ticks dão centenas
+     * de MB, que voltam aqui. */
     for (int i = 0; i < s->n_hist; i++)
     {
         estado_liberar(&s->historico[i]);

@@ -402,13 +402,14 @@ static void rota_algoritmo(Simulacao *sim, soquete_t c, const Pedido *p)
 
 /* GET /api/gantt e /api/exportar_svg (req. 2.3 e 2.4): o gráfico de Gantt
  * em SVG, desenhado pelo gantt.c. 'inteira' = 0 -> a janela da tela, os
- * últimos ticks (pelo menos GANTT_JANELA_TELA); 1 -> a simulação toda, como
- * download.
+ * últimos ticks (pelo menos GANTT_JANELA_TELA); 1 -> a simulação toda, do
+ * tick 0 ao fim, como download (se ainda não terminou, desenha uma cópia
+ * levada até o fim; a da tela não muda).
  *
  * O gantt_svg escreve num FILE*, e um socket não é FILE* no Windows. Então
  * o SVG vai para um arquivo em %TEMP%, é lido de volta e enviado. Não é
  * tmpfile(): no Windows ele tenta criar em C:\ e falha (ver gantt.h).
- * sem TEMP (comum no Linux) usa a pasta atual. */
+ * Sem TEMP (comum no Linux) usa a pasta atual. */
 static void responder_svg(soquete_t c, const Simulacao *sim, int inteira)
 {
     char caminho[512];
@@ -429,7 +430,8 @@ static void responder_svg(soquete_t c, const Simulacao *sim, int inteira)
      * inteiro; o do professor (~190 tarefas) fica com uns 100 ticks.
      * GANTT_JANELA_TELA é o mínimo. Sem simulação, nt + nc = 0: a conta só
      * é feita com linhas, senão seria divisão por zero (derruba o programa).
-     * 20 mil é estimativa; medir no teste com 200 tarefas. */
+     * Com tests/03_duzentas_tarefas.txt (200 tarefas + 8 CPUs) a janela
+     * fica em 20000 / 208 = 96 ticks. */
     if (nt + nc > 0 && 20000 / (nt + nc) > janela)
         janela = 20000 / (nt + nc);
     /* Só DEPOIS de calcular a janela: calculado antes, usaria o mínimo. */
