@@ -62,7 +62,7 @@
  * ==========================================================================*/
 
 (function () {
-  ("use strict");
+  "use strict";
 
   /* Estado global do frontend. Só o tick atual: o histórico mora no C. */
   const app = {
