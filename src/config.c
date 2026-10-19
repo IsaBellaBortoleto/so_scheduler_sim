@@ -44,56 +44,78 @@
  * ignorados (o arquivo já está reprovado de qualquer forma, n_erros > 0). */
 void diag_erro(Diagnostico *d, const char *fmt, ...)
 {
-    /* TODO: se d->n_erros >= MAX_DIAG, ignore silenciosamente (estourou o
-     * limite). Senão, monte a mensagem formatada com va_start/vsnprintf
-     * (vsnprintf(d->erros[d->n_erros], MAX_DIAG_TXT, fmt, args)) e
-     * incremente d->n_erros. Não esquecer va_end. */
+
+
+    /* Proteção contra Out-of-Bounds (Acesso indevido a índices do array).
+     * Se já atingimos o limite de mensagens que a interface web consegue 
+     * exibir, ignoramos o resto silenciosamente. */
     if (d->n_erros >= MAX_DIAG)
     {
         return;
     }
+    /* TEORIA DE FUNÇÕES VARIÁDICAS (va_list):
+     * Em C, '...' na assinatura da função significa que ela aceita um número 
+     * indefinido de argumentos (como no printf). 
+     * 'va_list' é o tipo usado para armazenar esses argumentos extras.
+     * O 'va_start' diz ao compilador: "Comece a ler os argumentos variáveis 
+     * logo após o parâmetro 'fmt'". */
 
     va_list args;
     va_start(args, fmt);
+    /* Monta a mensagem final fundindo a string base (fmt) com os argumentos (args) */
     vsnprintf(d->erros[d->n_erros], MAX_DIAG_TXT, fmt, args);
+    /* O 'va_end' limpa e reorganiza o ponteiro da pilha (stack) da CPU.
+     * Se esquecido, pode causar vazamento de recursos ou travamento. */
     va_end(args);
     d->n_erros++;
 }
+/* ============================================================================
+ * Requisito 4.4
+ * Igual a diag_erro, mas na lista de AVISOS. 
+ *
+ * TEORIA DE TOLERÂNCIA A FALHAS E SISTEMAS DE TEMPO REAL:
+ * Um aviso (Warning) não reprova o arquivo. Ele serve para reportar anomalias
+ * que o sistema consegue contornar de forma segura (Graceful Degradation).*/
 
-/* Igual a diag_erro, mas na lista de AVISOS. Aviso não reprova o arquivo: é
- * para o que o usuário precisa saber e a simulação consegue contornar (ex.
- * tarefa aperiódica ignorada, requisito 4.4). */
 void diag_aviso(Diagnostico *d, const char *fmt, ...)
 {
-    /* TODO: igual a diag_erro, mas em d->avisos / d->n_avisos. */
+   //Proteção no limite do array
     if (d->n_avisos >= MAX_DIAG)
     {
         return;
     }
-
+    /* Preparação da pilha (stack) para ler os argumentos variáveis (...) */
     va_list args;
     va_start(args, fmt);
+    /* Escrita segura do aviso: o vsnprintf garante que, no máximo, 
+     * MAX_DIAG_TXT bytes serão escritos na string de destino, prevenindo
+     * Buffer Overflows se a mensagem gerada for excessivamente longa. */
     vsnprintf(d->avisos[d->n_avisos], MAX_DIAG_TXT, fmt, args);
+    //Limpeza obrigatória do ponteiros de argumentos
     va_end(args);
 
     d->n_avisos++;
 }
 /* ------------------------------ utilitários ------------------------------ */
-
+//Cumpre o requisito 3.3.2 
 /* Compara dois textos sem diferenciar maiúsculas: "rm" == "RM" (req. 3.3.2).
  * Devolve 1 se iguais, 0 se diferentes (o contrário do strcmp). */
 int str_igual_ci(const char *a, const char *b)
 {
+    //Proteção para ponteiros nulos. Eviando Segmentation Faults
     if (a == NULL || b == NULL)
     {
         return 0;
     }
-
+    /* O ciclo avança até que uma das strings chegue ao fim ('\0') */
     while (*a && *b)
     {
         /* O cast para unsigned char é obrigatório: tolower com char negativo
          * (byte de letra acentuada, onde char é signed) é comportamento
-         * indefinido. */
+         * indefinido. Passar um número negativo (exceto o macro EOF) para 'tolower' resulta
+         * num Undefined Behavior crítico, podendo crashar a aplicação.
+         * O cast para (unsigned char) força o valor a ser interpretado de 
+         * 0 a 255, garantindo total segurança na conversão. */
         if (tolower((unsigned char)*a) != tolower((unsigned char)*b))
         {
             return 0;
@@ -102,11 +124,13 @@ int str_igual_ci(const char *a, const char *b)
         a++;
         b++;
     }
-
+    /*Só serão verdadeiramente iguais se AMBAS tiverem chegado ao fim ('\0')
+     * exatamente ao mesmo tempo, por isso a verificação novamente. */
     return *a == *b;
 }
 
-/* Tira espaços, tabs e '\r' do começo e do fim (req. 3.3.6). Não copia nada:
+/* Requisito 3.3.6 
+ * Tira espaços, tabs e '\r' do começo e do fim. Não copia nada:
  * corta o fim com '\0' e devolve um ponteiro para o começo de verdade.
  *
  * USE O RETORNO: linha = trim(linha). Texto só de espaços devolve "", e é
@@ -129,7 +153,9 @@ static char *trim(char *s)
         tam--;
     }
 
-    /* Início: avança o ponteiro até o primeiro caractere que não é espaço. */
+    /* Início: avança o ponteiro até o primeiro caractere que não é espaço. 
+    * criamos um novo ponteiro que passa pela string até
+    * encontrar o primeiro caractere que não seja um espaço. */
     char *inicio = s;
 
     while (*inicio && isspace((unsigned char)*inicio))
@@ -146,12 +172,18 @@ static char *trim(char *s)
  * str_igual_ci: toupper com char negativo é comportamento indefinido. */
 static void str_maiuscula(char *s)
 {
+    /* Validação defensiva padrão: evita falhas de segmentação caso 
+     * a função receba um ponteiro nulo acidentalmente. */    
     if (s == NULL)
         return;
-
+    /*A condição 'while (*s)' lê o valor do byte na morada de memória atual. 
+     * Em C, o terminador de string '\0' tem o valor numérico 0 (falso). 
+     * Logo, este ciclo avança magicamente até encontrar o fim da string.*/
     while (*s)
     {
+        
         *s = toupper((unsigned char)*s);
+        /* Avança o ponteiro para a próxima morada de memória (próximo caractere) */
         s++;
     }
 }
@@ -169,8 +201,10 @@ static int split_campos(char *linha, char *campos[], int max)
 {
     int n = 0;
 
-    /* 'linha' aponta sempre para o começo do próximo campo.
-     * O n < max impede estourar campos[]. */
+    /* O ponteiro 'linha' desliza pela string, apontando sempre para o 
+     * começo do próximo campo a ser processado.
+     * A proteção 'n < max' previne Buffer Overflow (estouro do array de 
+     * ponteiros 'campos[]'). */
     while (n < max)
     {
         /* O ÚLTIMO campo permitido não é cortado: fica com o resto da linha
@@ -179,37 +213,61 @@ static int split_campos(char *linha, char *campos[], int max)
 
         if (sep == NULL)
         {
-            /* Não há mais ';': o resto é o último campo. Se ele é vazio,
-             * a linha terminava em ';' (ou era vazia) e o campo é descartado.
-             * Um vazio no meio ("1;;5") é preservado. */
+            /* Condição de paragem: Não há mais ';' na string (ou forçámos 
+             * a paragem na regra do último campo acima).
+             * 
+             * Tratamento do Req. 3.3.3 (Trailing Semicolon):
+             * Se a string terminava em ';' (ex: "1;5;"), o ponteiro 'linha' 
+             * foi parar exatamente no '\0'. Nesse caso, o if (*linha != '\0') 
+             * ignora este "resto" vazio, destruindo o campo fantasma final.
+             * Porém, um vazio no MEIO da string (guardado em iterações 
+             * anteriores) já foi preservado em segurança. */
             if (*linha != '\0')
                 campos[n++] = linha;
 
             break;
         }
-
+        /*
+         * Em vez de fazer malloc() para copiar o texto da coluna para um
+         * novo lugar na memória, substituímos cirurgicamente o caractere ';'
+         * por um terminador de string '\0'. 
+         * Assim, o array 'campos' apenas guarda ponteiros que apontam para 
+         * moradas diferentes dentro da mesma string original. */
         *sep = '\0';
         campos[n++] = linha;
+        /* O próximo campo começa exatamente 1 byte após o ponto-e-vírgula 
+         * que acabámos de destruir. */
         linha = sep + 1;
     }
-
+    /* Retorna quantas colunas 
+     * esta linha efetivamente continha. */
     return n;
 }
 
 /* Converte o texto de um campo em número.
  * Campo vazio => devolve 'padrao', sem erro.
- * Texto ruim => devolve 0 e põe 0 em *ok. */
+ * Texto ruim => devolve 0 e põe 0 em *ok.
+ * Converte o texto de um campo em número inteiro.*/
 static int campo_int(const char *txt, int padrao, int *ok)
 {
+    /* O strtol vai alterar este ponteiro para apontar para o exato caractere
+     * onde ele parou de ler o número. */
     char *fim;
     long valor;
-
+    //Assumimos sucesso (1) à partida. Usamos passagem por referência (ponteiro *ok)
     *ok = 1;
 
+    /* REQUISITO 3.2 
+     * Se o campo estiver totalmente em branco, não é um erro. O sistema 
+     * aplica silenciosamente a configuração padrão passada pelo chamador. */
     if (txt == NULL || *txt == '\0')
         return padrao;
 
+    /* Reseta a flag de erro global da thread (errno) do Sistema Operativo
+     * ANTES de chamar a função, garantindo que não estamos a ler um erro 
+     * antigo deixado por outra função. */    
     errno = 0;
+    /* Converte a string para long usando a base 10 (decimal). */
     valor = strtol(txt, &fim, 10);
 
     /* fim == txt: nenhum dígito foi lido.
@@ -226,13 +284,13 @@ static int campo_int(const char *txt, int padrao, int *ok)
 }
 
 /* Converte "F0E0D0" em três componentes RGB.
- * Requisito 3.3: "cor é cor que identifica a execução da tarefa no formato
+ * Requisito 3.3 e 3.2: "cor é cor que identifica a execução da tarefa no formato
  * RGB em Hexadecimal, p.ex. 'F0E0D0' indica Red=F0, Green=E0, Blue=D0". */
 static int campo_cor(const char *txt, TCB *t)
 {
     unsigned int r, g, b;
 
-    /* Campo vazio: usa a cor padrão. */
+    /* Tratamento de ausência de dados */
     if (txt == NULL || *txt == '\0')
     {
         t->r = PADRAO_COR_R;
@@ -241,7 +299,12 @@ static int campo_cor(const char *txt, TCB *t)
         return 1;
     }
 
-    /* '#' na frente é opcional. */
+    /* 
+     * Na web, as cores hexadecimais são precedidas pela cerquilha '#'.
+     * O enunciado não pede o '#', mas utilizadores habituados a ficheiros 
+     * de configuração web colocam-no instintivamente. 
+     * O 'txt++' é pura aritmética de ponteiros: avançamos o ponteiro 1 byte 
+     * para a frente, ignorando o '#' e lendo apenas os números reais a seguir. */
     if (*txt == '#')
         txt++;
 
@@ -249,6 +312,8 @@ static int campo_cor(const char *txt, TCB *t)
     if (strlen(txt) != 6)
         return 0;
 
+    /*  Verifica se todos os caracteres pertencem ao conjunto [0-9, A-F, a-f].
+     *  O cast (unsigned char) protege contra falhas no isxdigit. */    
     for (int i = 0; i < 6; i++)
     {
         if (!isxdigit((unsigned char)txt[i]))
@@ -257,7 +322,13 @@ static int campo_cor(const char *txt, TCB *t)
 
     /* Exemplo: F0E0D0 -> F0, E0, D0. */
     sscanf(txt, "%2x%2x%2x", &r, &g, &b);
-
+    /* 
+     * O sscanf com %x exige ponteiros para inteiros (no mínimo 32-bits em x86).
+     * No entanto, a nossa estrutura TCB guarda as cores em 'unsigned char' (8-bits) 
+     * para poupar memória RAM.
+     * Como lemos '%2x', o valor máximo absoluto garantido é 'FF' (255 em decimal).
+     * O número 255 cabe perfeitamente em 8-bits, tornando este 'cast' explícito 
+     * matematicamente seguro e livre de perdas de dados (truncation). */
     t->r = (unsigned char)r;
     t->g = (unsigned char)g;
     t->b = (unsigned char)b;
@@ -273,15 +344,27 @@ static int campo_cor(const char *txt, TCB *t)
 
 /* campo_int + mensagem de erro pronta: o valor tem que ser um inteiro
  * >= minimo. Em caso de erro registra o diagnóstico e zera *ok (nunca põe 1:
- * assim vários campos da mesma linha acumulam no mesmo *ok). */
+ * assim vários campos da mesma linha acumulam no mesmo *ok). 
+ * 
+ * LIGAÇÃO AOS REQUISITOS (Req 3.3.6):
+ * Centraliza a geração de mensagens claras, indicando exatamente a linha do 
+ * ficheiro, o nome da coluna que falhou, o que foi lido e qual era o limite esperado*/
 static int campo_int_min(Diagnostico *d, int linha, const char *nome,
                          const char *txt, int padrao, int minimo, int *ok)
 {
     int leu;
+    /* Reutiliza o conversor seguro de baixo nível (strtol) que criámos antes.
+     * A variável 'leu' vai informar-nos se a conversão do texto para bits ocorreu. */
     int valor = campo_int(txt, padrao, &leu);
+    /* 
+     * A função dispara o erro em dois cenários distintos fundidos num só 'if':
+     * 1. !leu: Ocorreu uma falha sintática. O strtol encontrou lixo ("abc").
+     * 2. valor < minimo: Ocorreu uma falha semântica. O número é um inteiro válido,
+     *    mas viola as leis do simulador  */
 
     if (!leu || valor < minimo)
     {
+        /* Injeta o diagnóstico formatado na nossa matriz de erros */
         diag_erro(d, "linha %d: %s invalido \"%s\" (esperado um inteiro >= %d)",
                   linha, nome, txt, minimo);
         *ok = 0;
@@ -290,9 +373,16 @@ static int campo_int_min(Diagnostico *d, int linha, const char *nome,
     return valor;
 }
 
-/* Parseia o texto de configuracao linha a linha: 1a linha valida = cabecalho
- * (algoritmo;quantum;qtde_cpus), demais = tarefas. Preenche *e e aloca
- * e->tarefas/e->cpus; em erro fatal libera tudo e retorna 0. */
+/* ============================================================================
+ * Parseia o texto de configuracao linha a linha.
+ * 1a linha valida = cabecalho (algoritmo;quantum;qtde_cpus)
+ * demais linhas = tarefas (TCBs).
+ *
+ * TEORIA DE MÁQUINAS DE ESTADO (State Machine Parsing):
+ * A variável 'tem_cabecalho' atua como o estado do parser. 
+ * Estado 0: Procurando a linha de parâmetros do sistema.
+ * Estado 1: Lendo as tarefas para a fila de prontos.
+ * ==========================================================================*/
 int config_carregar_texto(const char *conteudo, Estado *e, Diagnostico *d)
 {
     char vazio[1] = "";
@@ -301,13 +391,19 @@ int config_carregar_texto(const char *conteudo, Estado *e, Diagnostico *d)
     int tem_cabecalho = 0;
     int capacidade = 0;
     int valido = 1;
-
+    /* Zera a memória do Estado inicial. Previne que "lixo" de RAM 
+     * interfira na execução do escalonador. */
     memset(e, 0, sizeof *e);
 
+    /* Aplica as definições base do sistema antes de começar a ler. */  
     strcpy(e->algoritmo, PADRAO_ALGORITMO);
     e->quantum = PADRAO_QUANTUM;
     e->ncpus = PADRAO_CPUS;
-
+    /* 
+     * Ficheiros de texto gravados no Windows (ex: Bloco de Notas) em UTF-8 
+     * muitas vezes começam com 3 bytes invisíveis (0xEF, 0xBB, 0xBF). 
+     * Se não ignorarmos isto, o parser vai ler "?algoritmo" em vez de "algoritmo", 
+     * reprovando o ficheiro logo na primeira linha. */
     if (conteudo == NULL || *conteudo == '\0')
     {
         diag_erro(d, "arquivo vazio");
@@ -317,6 +413,10 @@ int config_carregar_texto(const char *conteudo, Estado *e, Diagnostico *d)
     if (strncmp(conteudo, "\xEF\xBB\xBF", 3) == 0)
         conteudo += 3;
 
+    /* 
+     * O nosso parser altera a string original (substituindo ';' e '\n' por '\0'). 
+     * Como 'conteudo' é 'const char *' (não pode ser modificado), 
+     * criamos uma cópia exata na Heap para podermos mutilar à vontade. */
     copia = malloc(strlen(conteudo) + 1);
 
     if (copia == NULL)
@@ -327,7 +427,10 @@ int config_carregar_texto(const char *conteudo, Estado *e, Diagnostico *d)
 
     strcpy(copia, conteudo);
 
-    /* copia e quebrada em linhas no lugar ('\n' -> '\0') */
+    /* 
+     * Em vez de ler linha a linha do disco (fgets), iteramos os ponteiros na RAM.
+     * O 'strchr' procura o próximo '\n', corta-o com '\0', e guarda a morada 
+     * do resto do texto no ponteiro 'prox'. */
     for (linha = copia; linha != NULL; linha = prox)
     {
         char *campos[MAX_CAMPOS];
@@ -343,20 +446,23 @@ int config_carregar_texto(const char *conteudo, Estado *e, Diagnostico *d)
         num++;
 
         txt = trim(linha);
-
+        /* Ignora linhas vazias ou comentários (Req. 3.3.6) */
         if (*txt == '\0' || *txt == '#')
             continue;
-
+        
         n = split_campos(txt, campos, MAX_CAMPOS);
-
+        /* Limpa os espaços em branco isolados dentro de cada coluna específica. */
         for (i = 0; i < MAX_CAMPOS; i++)
             campos[i] = (i < n) ? trim(campos[i]) : vazio;
 
+        /* ----------------------- ESTADO 0: CABEÇALHO ----------------------- */
         if (!tem_cabecalho)
         {
             /* primeira linha nao vazia/comentario = cabecalho, nao tarefa */
             tem_cabecalho = 1;
 
+            /* Validação defensiva do tamanho da string do algoritmo para 
+             * evitar Buffer Overflow na variável estática do Estado. */
             if (strlen(campos[0]) >= sizeof e->algoritmo)
             {
                 diag_erro(d, "linha %d: nome de algoritmo longo demais \"%s\"",
@@ -378,8 +484,10 @@ int config_carregar_texto(const char *conteudo, Estado *e, Diagnostico *d)
             continue;
         }
 
+        /* ------------------------- ESTADO 1: TAREFAS ----------------------- */
         memset(&t, 0, sizeof t);
 
+        /* Indica que a tarefa começa sem estar alocada a nenhum processador. */
         t.cpu = -1;
 
         t.periodo = campo_int_min(d, num, "periodo", campos[4],
@@ -433,7 +541,10 @@ int config_carregar_texto(const char *conteudo, Estado *e, Diagnostico *d)
             }
             else if (t.prazo == 0)
             {
-                /* prazo omitido (0) -> default = periodo */
+                /* 
+                 * Em sistemas críticos clássicos, quando o prazo não é especificado, 
+                 * assume-se que a tarefa deve terminar exatamente antes da sua 
+                 * próxima ativação (prazo = período). */
                 diag_aviso(d,
                            "linha %d: tarefa \"%s\" com prazo 0; assumido prazo = periodo (%d)",
                            num, campos[0], t.periodo);
@@ -452,7 +563,7 @@ int config_carregar_texto(const char *conteudo, Estado *e, Diagnostico *d)
             {
                 campos[6][--tam] = '\0';
             }
-
+            /* Proteção contra sobrecarga do buffer de eventos estático. */
             if (tam >= sizeof t.eventos)
             {
                 diag_aviso(d,
@@ -472,7 +583,8 @@ int config_carregar_texto(const char *conteudo, Estado *e, Diagnostico *d)
                 ok = 0;
             }
         }
-
+        /* Trinco Lógico: se qualquer campo falhou nesta iteração, 
+         * descarta a linha inteira mas prossegue para encontrar mais erros. */
         if (!ok)
         {
             valido = 0;
@@ -497,11 +609,13 @@ int config_carregar_texto(const char *conteudo, Estado *e, Diagnostico *d)
             e->tarefas = maior;
             capacidade = nova;
         }
-
+        /* Insere o TCB válido no vetor do sistema. */
         e->tarefas[e->ntarefas++] = t;
     }
 
     free(copia);
+
+    /* ---------------------- FINALIZAÇÃO E VALIDAÇÃO ----------------------- */
 
     if (!tem_cabecalho)
     {
@@ -518,6 +632,7 @@ int config_carregar_texto(const char *conteudo, Estado *e, Diagnostico *d)
     /* so aloca e->cpus (qtde definida no cabecalho) se tudo ate aqui foi valido */
     if (valido)
     {
+        /* calloc inicializa nativamente com zeros, prevenindo resíduos na RAM */
         e->cpus = calloc((size_t)e->ncpus, sizeof *e->cpus);
 
         if (e->cpus == NULL)
@@ -526,13 +641,14 @@ int config_carregar_texto(const char *conteudo, Estado *e, Diagnostico *d)
             valido = 0;
         }
     }
-
+    /* Se ocorreu qualquer erro, limpa a memória já alocada e aborta a carga. */
     if (!valido)
     {
         estado_liberar(e);
         return 0;
     }
-
+    /* Prepara o estado inicial do Escalonador, marcando todos os 
+     * núcleos como Ociosos (tarefa = -1). */
     for (int i = 0; i < e->ncpus; i++)
     {
         e->cpus[i].id = i;
