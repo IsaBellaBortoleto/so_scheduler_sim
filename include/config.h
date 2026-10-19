@@ -2,40 +2,33 @@
 #define CONFIG_H
 
 #include "tcb.h"
-/* ============================================================================
- * Requisito 3.2
- * O software deve sugerir valores padrão para todos os parâmetros.
- * ==========================================================================*/
-/* 
- * Requisito 4
- * O algoritmo Rate Monotonic (RM) baseia-se numa prioridade fixa e estática
- * atribuída consoante o período da tarefa (menor período = maior prioridade).
-*/
+
+/* ----------------------------------------------------------------------------
+ * VALORES PADRÃO (req. 3.2): valem quando o campo do arquivo está em branco.
+ * --------------------------------------------------------------------------*/
+
+/* RM: o primeiro algoritmo do enunciado (req. 4). */
 #define PADRAO_ALGORITMO "RM"
-/* O sistema deve permitir a simulação em múltiplos processadores, 
- * sendo no mínimo 1. */
+/* 2 ticks seguidos na CPU antes de devolvê-la (0 no arquivo = sem limite). */
 #define PADRAO_QUANTUM   2
+/* O mínimo que o enunciado aceita: de 1 a N processadores. */
 #define PADRAO_CPUS      1
 /* Periodo nao informado vale 0, que pelo enunciado e "aperiodica": a tarefa
  * e ignorada com aviso (4.4). Nao inventamos um periodo positivo: simular
  * uma tarefa com um periodo que ninguem escreveu enganaria o usuario. */
 #define PADRAO_PERIODO   0
-/* 
- * Requisito 2.1
- * Cores padrão para o preenchimento do Gráfico de Gantt exigido. */
+/* Cor da tarefa no Gantt quando o campo está vazio (#3B82F6, um azul). */
 #define PADRAO_COR_R     0x3B
 #define PADRAO_COR_G     0x82
 #define PADRAO_COR_B     0xF6
-/* Limites para as mensagens de diagnóstico. */
+
+/* Até 64 mensagens de cada tipo, com até 200 caracteres cada. */
 #define MAX_DIAG      64
 #define MAX_DIAG_TXT 200
 
-/* ============================================================================
- * Requisitos 3.3.6 e 5
- * Qualquer erro na configuração ou no uso do simulador deve ser 
- * apresentado de forma clara para o usuário, justificando o motivo.
- * O C "empacota" estes erros nesta struct e o app.js exibe-os na tela.
- * ==========================================================================*/
+/* Erros e avisos do carregamento (req. 3.3.6 e 5: todo erro com o motivo).
+ * Erro reprova o arquivo; aviso não. O servidor manda as duas listas em
+ * JSON e a página as mostra na área "mensagens". */
 typedef struct {
     char erros[MAX_DIAG][MAX_DIAG_TXT];   int n_erros;
     char avisos[MAX_DIAG][MAX_DIAG_TXT];  int n_avisos;
@@ -44,12 +37,11 @@ typedef struct {
 void diag_erro (Diagnostico *d, const char *fmt, ...);
 void diag_aviso(Diagnostico *d, const char *fmt, ...);
 
-
 /* Interpreta o CONTEUDO de um arquivo de configuracao (texto terminado em
  * '\0'), nao um caminho.
  *
- * Por que conteudo e nao caminho: Teste com o arquivo no
- * pendrive, sem copiar para a maquina. A letra do pendrive (E:, F:...)
+ * Por que conteudo e nao caminho: o arquivo pode estar num pendrive, e o
+ * professor testa assim, sem copiar para a maquina. A letra do pendrive (E:, F:...)
  * muda de computador para computador, entao a pagina usa o seletor de
  * arquivo do sistema e envia os bytes para o servidor (POST /api/carregar).
  * O C nunca abre caminho nenhum -- e o requisito 3.3.4 ("qualquer lugar do
@@ -72,7 +64,8 @@ int config_carregar_texto(const char *conteudo, Estado *e, Diagnostico *d);
 int str_igual_ci(const char *a, const char *b);
 
 /* Converte 'txt' em int. Retorna 1 se o texto INTEIRO e um numero ("12"),
- * 0 se nao e ("abc", "", "12x") ou nao cabe num int. */
+ * 0 se nao e ("abc", "", "12x") ou nao cabe num int. Usada pelo leitor do
+ * arquivo e pela edicao de tarefas (kernel.c). */
 int ler_inteiro(const char *txt, int *saida);
 
 #endif

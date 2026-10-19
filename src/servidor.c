@@ -408,7 +408,7 @@ static void rota_algoritmo(Simulacao *sim, soquete_t c, const Pedido *p)
  * O gantt_svg escreve num FILE*, e um socket não é FILE* no Windows. Então
  * o SVG vai para um arquivo em %TEMP%, é lido de volta e enviado. Não é
  * tmpfile(): no Windows ele tenta criar em C:\ e falha (ver gantt.h).
- * ponytail: sem TEMP (comum no Linux) usa a pasta atual. */
+ * sem TEMP (comum no Linux) usa a pasta atual. */
 static void responder_svg(soquete_t c, const Simulacao *sim, int inteira)
 {
     char caminho[512];
@@ -429,7 +429,7 @@ static void responder_svg(soquete_t c, const Simulacao *sim, int inteira)
      * inteiro; o do professor (~190 tarefas) fica com uns 100 ticks.
      * GANTT_JANELA_TELA é o mínimo. Sem simulação, nt + nc = 0: a conta só
      * é feita com linhas, senão seria divisão por zero (derruba o programa).
-     * ponytail: 20 mil é estimativa; medir no teste com 200 tarefas. */
+     * 20 mil é estimativa; medir no teste com 200 tarefas. */
     if (nt + nc > 0 && 20000 / (nt + nc) > janela)
         janela = 20000 / (nt + nc);
     /* Só DEPOIS de calcular a janela: calculado antes, usaria o mínimo. */
@@ -576,7 +576,7 @@ static void atender(Simulacao *sim, soquete_t c)
  * Navegadores fazem isso de propósito: abrem conexões "de reserva" para o
  * próximo clique. Com o limite, o recv desiste, a ler_pedido devolve 0 e a
  * conexão é fechada.
- * ponytail: 500 ms bastam aqui, porque o navegador está na mesma máquina e
+ * 500 ms bastam aqui, porque o navegador está na mesma máquina e
  * manda o pedido inteiro na hora; uma conexão de reserva atrasa os outros
  * pedidos em até meio segundo. Em rede de verdade, o certo seria atender
  * várias conexões ao mesmo tempo (select ou threads). */
