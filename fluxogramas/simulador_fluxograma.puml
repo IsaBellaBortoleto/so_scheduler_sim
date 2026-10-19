@@ -1,56 +1,72 @@
 @startuml simulador_fluxograma
 title Fluxograma de Funcionamento do Simulador (Projeto A)
 
+' ----------------------------------------------------------------------------
+' Conferido com o codigo em 19/10/2026. A ordem dos passos de um tick e a de
+' sim_avancar (kernel.c): executar, tick++, prazos, chegadas, escalonar, foto.
+' ----------------------------------------------------------------------------
+
 start
 
-:Usuário informa o caminho do\narquivo de configuração (texto plano);
-:Simulador carrega e faz parsing do arquivo\n(algoritmo_escalonamento;quantum;qtde_cpus\n+ uma linha por tarefa);
+:Usuário abre o simulador.exe\n(o programa liga o servidor local\ne abre o navegador sozinho);
+:Usuário ESCOLHE o arquivo de configuração\nno seletor do navegador (qualquer pasta,\ninclusive pendrive) e clica em carregar;
+:A página envia o CONTEÚDO do arquivo ao C;
 
-if (Arquivo bem formado e\ncarregável?) then (não)
-  :Exibe erro claro ao usuário\nindicando o motivo;
+if (É um arquivo de texto?) then (não)
+  :Recusa: o arquivo escolhido\nnão é um arquivo de texto;
   stop
 else (sim)
 endif
 
-:Aplica valores padrão aos parâmetros\nnão informados pelo usuário;
-:Cria o TCB (Task Control Block)\npara cada tarefa do arquivo;
-if (Existem tarefas\naperiódicas?) then (sim)
-  :Ignora a tarefa e reporta\na situação ao usuário\n(Projeto A só trata periódicas);
-endif
-:Inicializa N processadores\ne a fila de prontos global;
-
-:Usuário escolhe o modo de execução;
-
-if (Modo escolhido?) then (Passo-a-passo)
-  repeat
-    :Avança 1 tick do relógio global;
-    :Verifica ingresso de novas\nativações de tarefas periódicas;
-    :Escalonador (RM ou EDF) seleciona\na próxima tarefa para cada CPU livre;
-    if (Houve empate na escolha?) then (sim)
-      :Aplica critérios de desempate, em ordem:\n1) tarefa já em execução\n2) menor prazo\n3) menor instante de ingresso\n4) menor duração\n5) sorteio (marcado no gantt);
-    endif
-    :Atribui/preempta tarefas nas CPUs;
-    if (Alguma CPU ficou\nsem tarefa disponível?) then (sim)
-      :Desliga a CPU e registra\no período de ociosidade;
-    endif
-    :Verifica se algum prazo (deadline)\nfoi estourado e marca o erro;
-    :Atualiza o gráfico de gantt na tela\n(cor = executando, sem cor = pronta,\npreto+padrão = suspensa, ícones = chegada/término);
-    :Salva snapshot do estado atual do\nsistema no histórico (para navegação);
-    :Usuário pode avançar, retroceder\nou editar o estado de qualquer tarefa;
-    if (Usuário retrocedeu?) then (sim)
-      :Restaura snapshot anterior\ndo histórico (relógio global também volta);
-    endif
-  repeat while (Ainda há tarefas\na executar?) is (sim)
-  ->não;
-else (Completa)
-  while (Ainda há tarefas\na executar?) is (sim)
-    :Avança tick, escalona (RM/EDF),\natribui CPUs, trata prazos e ociosidade\n(sem exibir passos intermediários);
-  endwhile (não)
-  :Exibe apenas o resultado final\nda simulação;
+:Lê o arquivo linha a linha\n(algoritmo;quantum;qtde_cpus\n+ uma linha por tarefa)\ne aplica os valores padrão\nnos campos em branco;
+if (Tarefa aperiódica\n(período 0 ou em branco)?) then (sim)
+  :Ignora a tarefa e mostra um AVISO\n(Projeto A só trata periódicas);
+else (não)
 endif
 
-:Gera arquivo de imagem do gráfico\nde gantt final (PNG/SVG/JPG),\nrepresentando a simulação completa;
+if (Algum erro no arquivo?) then (sim)
+  :Mostra TODOS os erros, cada um com\no número da linha e o motivo\n(a simulação anterior continua na tela);
+  stop
+else (não)
+endif
 
+:Cria o TCB de cada tarefa e as N CPUs\ne calcula o limite de ticks a partir do arquivo;
+:Tick 0: chegadas, escalonamento\ne a primeira foto no histórico;
+
+repeat
+  :Usuário escolhe uma ação na página;
+  switch (Ação?)
+  case (avançar)
+    :1. Executar: cada tarefa na CPU consome 1 unidade\n(término: +1 execução; na 10ª fica CONCLUÍDA;\nexecução pendente começa logo em seguida;\nquantum esgotado: volta para a fila);
+    :2. O relógio global anda (tick + 1);
+    :3. Verificar prazos: quem passou do prazo\nabsoluto é marcado (X no Gantt)\ne continua executando;
+    :4. Chegadas: tarefa livre vira PRONTA;\ntarefa ainda ocupada ganha uma\nexecução PENDENTE (nenhuma se perde);
+    :5. Escalonar (RM ou EDF), fila global:\nas N mais prioritárias ficam com as CPUs\n(empate: já executando, menor prazo,\nchegou antes, menor duração, sorteio);\nCPU sem tarefa fica DESLIGADA;
+    :6. Foto do estado no histórico;
+  case (executar tudo)
+    :Repete os passos de avançar até o fim\n(só o resultado final aparece na tela);
+  case (retroceder)
+    :Descarta a última foto e restaura\na anterior (o relógio volta junto);
+  case (editar tarefa)
+    if (A edição faz sentido?) then (sim)
+      :Aplica e troca a foto do tick atual;
+    else (não)
+      :Recusa e mostra o motivo;
+    endif
+  case (trocar algoritmo)
+    :Vale a partir do próximo tick\n(linha tracejada no Gantt);
+  case (exportar SVG)
+    if (A simulação já terminou?) then (sim)
+      :Desenha o histórico inteiro;
+    else (não)
+      :Leva uma CÓPIA até o fim e desenha\na cópia (a tela não muda);
+    endif
+    :Baixa o gantt.svg com a simulação completa;
+  endswitch
+  :A página mostra o estado novo e pede o Gantt\nde novo ao C (desenhado em gantt.c);
+repeat while (A simulação continua?\n(nem todas fizeram as 10 execuções\ne não chegou ao limite de ticks)) is (sim)
+->não;
+:Último evento: simulação concluída\n(ou interrompida no limite, se algo\nnão termina sozinho, ex.: tarefa suspensa);
 stop
 
 @enduml

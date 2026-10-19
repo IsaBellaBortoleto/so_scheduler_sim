@@ -1,0 +1,129 @@
+@startuml estruturas_dados
+title Estruturas de dados (as struct do C e como uma contém a outra)
+
+' ----------------------------------------------------------------------------
+' Diagrama de CLASSES (UML) usado para STRUCTS: C nao tem classes, entao cada
+' caixa e uma struct, so com os campos (sem metodos). As funcoes que mexem em
+' cada struct ficam no .c do mesmo modulo. Conferido com tcb.h, kernel.h,
+' escalonador.h e config.h em 19/10/2026.
+' ----------------------------------------------------------------------------
+
+skinparam shadowing false
+skinparam defaultFontName Arial
+skinparam classAttributeIconSize 0
+skinparam class {
+  BackgroundColor #FFFFFF
+  BorderColor #546E7A
+}
+hide methods
+hide circle
+
+class "Simulacao" as Simulacao <<kernel.h>> #EDE7F6 {
+  atual : Estado
+  {field} historico : Estado*  (uma foto por tick)
+  n_hist, cap_hist : int
+  esc : const Escalonador*
+  terminada : int
+  {field} limite_ticks : int  (calculado do arquivo)
+  ultimo_evento : char[256]
+}
+
+class "Estado" as Estado <<tcb.h>> #E3F2FD {
+  algoritmo : char[16]
+  quantum : int
+  ncpus : int
+  ntarefas : int
+  {field} tick : int  (relógio global)
+  tarefas : TCB*
+  cpus : CPU*
+}
+
+class "TCB" as TCB <<tcb.h>> #E8F5E9 {
+  .. vem do arquivo ..
+  id : int
+  {field} r, g, b : unsigned char  (cor)
+  ingresso : int
+  {field} duracao : int  (Ci)
+  {field} periodo : int  (Pi)
+  {field} prazo : int  (Di)
+  {field} eventos : char[256]  (Projeto B)
+  .. muda a cada tick ..
+  estado : EstadoTarefa
+  {field} exec_restante : int  (Ci rest.)
+  quantum_restante : int
+  {field} ativacao : int  (tick da chegada)
+  {field} deadline_abs : int  (chegada + Di)
+  {field} ativacoes : int  (concluídas)
+  perdeu_prazo : int
+  {field} cpu : int  (-1 = nenhuma)
+  sorteada : int
+  pendentes : int
+}
+
+class "CPU" as CPU <<tcb.h>> #FFF3E0 {
+  id : int
+  {field} tarefa : int  (posição em tarefas, -1 = desligada)
+  ticks_desligada : int
+}
+
+enum "EstadoTarefa" as EstadoTarefa <<tcb.h>> {
+  INATIVA
+  PRONTA
+  EXECUTANDO
+  SUSPENSA
+  CONCLUIDA
+}
+
+class "Escalonador" as Escalonador <<escalonador.h>> #FCE4EC {
+  {field} nome : const char*  ("RM", "EDF")
+  descricao : const char*
+  {field} prioridade : long (*)(const TCB*, int tick)
+}
+
+class "Diagnostico" as Diagnostico <<config.h>> #FFFDE7 {
+  erros : char[64][200]
+  n_erros : int
+  avisos : char[64][200]
+  n_avisos : int
+}
+
+Simulacao *-- "1" Estado : atual
+Simulacao *-- "n_hist" Estado : historico
+Simulacao --> "1" Escalonador : esc
+Estado *-- "ntarefas" TCB : tarefas
+Estado *-- "ncpus" CPU : cpus
+TCB --> EstadoTarefa : estado
+CPU ..> TCB : tarefa = posição no vetor
+
+note right of Simulacao
+  <b>Por que cópia profunda (estado_clonar)</b>
+  Cada foto do histórico tem os SEUS vetores
+  de tarefas e de CPUs. Copiar com "=" copiaria
+  só os ponteiros: mudar o presente mudaria o
+  passado, e retroceder deixaria de funcionar.
+end note
+
+note bottom of Escalonador
+  <b>Algoritmo plugável (req. 4.2)</b>
+  Um algoritmo é só a função "prioridade"
+  (valor maior ganha). RM devolve -período;
+  EDF devolve -deadline_abs. O kernel só
+  conhece este tipo, nunca RM ou EDF.
+  Os registrados ficam numa tabela em
+  escalonador.c.
+end note
+
+note bottom of Diagnostico
+  Erros e avisos do arquivo de configuração
+  (config.c). Vão para a página em JSON;
+  erro reprova o arquivo, aviso não.
+end note
+
+note bottom of TCB
+  <b>Req. 1.3:</b> tudo o que se sabe de uma tarefa
+  fica nesta única struct. Não há campo de
+  prioridade: ela é calculada pelo algoritmo
+  a cada tick.
+end note
+
+@enduml

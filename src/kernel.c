@@ -22,8 +22,6 @@
  * ==========================================================================*/
 #include "kernel.h"
 
-#include <errno.h>
-#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -55,23 +53,94 @@ static int todas_concluidas(const Estado *e)
     return 1;
 }
 
+/* Clona 'origem' em 'destino'. Devolve 1 se deu certo, 0 se faltou memória
+ * (estado_clonar devolve os vetores vazios nesse caso; aqui já é liberado). */
+static int clonar(Estado *destino, const Estado *origem)
+{
+    *destino = estado_clonar(origem);
+    if (destino->ntarefas != origem->ntarefas || destino->ncpus != origem->ncpus)
+    {
+        estado_liberar(destino);
+        return 0;
+    }
+    return 1;
+}
+
+/* Tira a tarefa da CPU dos DOIS lados: a CPU guarda a tarefa e a tarefa
+ * guarda a CPU. */
+static void soltar_cpu(Estado *e, TCB *t)
+{
+    e->cpus[t->cpu].tarefa = -1;
+    t->cpu = -1;
+}
+
 /* ------------------------------- histórico ------------------------------- */
 
-/* Guarda a fotografia do tick corrente em historico[n_hist].
+/* Guarda a fotografia do tick corrente em historico[n_hist]. Devolve 1 se
+ * guardou, 0 se faltou memória (o histórico continua como estava).
  *
  * guardamos o estado INTEIRO a cada tick, não um diário de
- * diferenças. Custo = ntarefas * ticks * sizeof(TCB) — para 20 tarefas e
- * 5000 ticks dá poucos megabytes, e em troca retroceder é um memcpy.
+ * diferenças. Custo = ntarefas * ticks * sizeof(TCB) — 20 tarefas e 5000
+ * ticks dão uns 30 MB; 190 tarefas, 60 KB por tick. Em troca, retroceder é
+ * só restaurar uma cópia. O teto de memória fica em calcular_limite.
  * Trocar por undo-log só se a simulação precisar de milhões de ticks. */
-static void snapshot(Simulacao *s)
+static int snapshot(Simulacao *s)
 {
     if (s->n_hist >= s->cap_hist)
     {
-        s->cap_hist = (s->cap_hist == 0) ? 64 : s->cap_hist*2;
-        s->historico = realloc(s->historico,s->cap_hist* sizeof(Estado));
+        int nova = (s->cap_hist == 0) ? 64 : s->cap_hist * 2;
+        /* Ponteiro temporário: se o realloc falhar, devolve NULL e o
+         * histórico antigo continua valendo. Com "s->historico = realloc"
+         * ele se perderia, e a linha seguinte escreveria em NULL. */
+        Estado *maior = realloc(s->historico, nova * sizeof(Estado));
+        if (maior == NULL)
+            return 0;
+        s->historico = maior;
+        s->cap_hist = nova;
     }
-    s->historico[s->n_hist] = estado_clonar(&s->atual);
+    if (!clonar(&s->historico[s->n_hist], &s->atual))
+        return 0;
     s->n_hist++;
+    return 1;
+}
+
+/* LIMITE DE TICKS de uma simulação (req. 2.4: a imagem final não pode
+ * ficar presa a um tempo máximo). Calculado a partir do arquivo:
+ *   - toda tarefa faz 10 execuções, então a última chegada de cada uma é
+ *     em ingresso + 9 * período;
+ *   - depois da última chegada falta, no máximo, o trabalho TOTAL (10 *
+ *     duração de cada tarefa): o escalonador nunca deixa CPU desligada com
+ *     tarefa pronta, então cada tick faz pelo menos 1 unidade de trabalho.
+ * A soma das duas é um teto para o fim natural. O dobro dá folga para
+ * edições (ex.: uma duração aumentada). Só passa disso uma simulação que
+ * não termina sozinha, como uma tarefa suspensa à mão e nunca retomada: é
+ * para ela que o limite existe.
+ * Nunca menos que MAX_TICKS, e nunca mais do que o histórico (uma foto por
+ * tick) cabe em MAX_MEMORIA_HIST. long long: duração e período vêm do
+ * arquivo, e a conta em int poderia estourar. */
+static int calcular_limite(const Estado *e)
+{
+    long long ultima_chegada = 0, trabalho = 0, limite, teto;
+
+    for (int i = 0; i < e->ntarefas; i++)
+    {
+        const TCB *t = &e->tarefas[i];
+        long long chegada = t->ingresso + (long long)(MAX_ATIVACOES - 1) * t->periodo;
+        if (chegada > ultima_chegada)
+            ultima_chegada = chegada;
+        trabalho += (long long)MAX_ATIVACOES * t->duracao;
+    }
+    limite = 2 * (ultima_chegada + trabalho);
+    if (limite < MAX_TICKS)
+        limite = MAX_TICKS;
+
+    /* Bytes de UMA foto: a struct Estado mais os vetores de tarefas e CPUs. */
+    teto = MAX_MEMORIA_HIST / ((long long)sizeof(Estado) +
+                               (long long)e->ntarefas * sizeof(TCB) +
+                               (long long)e->ncpus * sizeof(CPU));
+    if (limite > teto)
+        limite = teto;
+    return (int)limite; /* cabe: teto <= 1 GB / sizeof(Estado) */
 }
 
 /* Uma CHEGADA: a tarefa recebe uma nova execução para fazer.
@@ -151,30 +220,19 @@ static void escalonar(Simulacao *s)
     /* 3) Determinar quantos vencedores teremos (menor entre candidatos e cpus) */
     int vencedores = (n_candidatos < e->ncpus) ? n_candidatos : e->ncpus;
 
-    /* 4) Preempção: tirar da CPU quem estava EXECUTANDO mas perdeu a vaga */
-    for (int i = 0; i < e->ntarefas; i++)
+    /* 4) Preempção: tirar da CPU quem estava EXECUTANDO mas perdeu a vaga.
+     * Toda tarefa EXECUTANDO é candidata, então quem perdeu a vaga está
+     * em candidatos[vencedores..n_candidatos). */
+    for (int j = vencedores; j < n_candidatos; j++)
     {
-        if (e->tarefas[i].estado == EST_EXECUTANDO)
+        TCB *t = &e->tarefas[candidatos[j]];
+        if (t->estado == EST_EXECUTANDO)
         {
-            int continua = 0;
-            for (int j = 0; j < vencedores; j++)
-            {
-                if (candidatos[j] == i)
-                {
-                    continua = 1;
-                    break;
-                }
-            }
-            
-            if (continua == 0)
-            {
-                // Libera a CPU e volta a tarefa para a fila
-                e->cpus[e->tarefas[i].cpu].tarefa = -1;
-                e->tarefas[i].cpu = -1;
-                e->tarefas[i].estado = EST_PRONTA;
-            }
+            // Libera a CPU e volta a tarefa para a fila
+            soltar_cpu(e, t);
+            t->estado = EST_PRONTA;
         }
-    } 
+    }
 
     /* 5) Acomodar os vencedores que ainda não têm CPU */
     for (int k = 0; k < vencedores; k++)
@@ -233,8 +291,7 @@ static void executar(Simulacao *s)
               * espera a próxima chegada do período. */
              if (tarefa->exec_restante <= 0)
              {
-                 executando->cpus[tarefa->cpu].tarefa = -1;
-                 tarefa->cpu = -1;
+                 soltar_cpu(executando, tarefa);
                  tarefa->quantum_restante = 0;
                  tarefa->ativacoes++;
                  if (tarefa->ativacoes >= MAX_ATIVACOES)
@@ -259,8 +316,7 @@ static void executar(Simulacao *s)
               * isso o "quantum > 0". */
              else if (executando->quantum > 0 && tarefa->quantum_restante <= 0)
              {
-                 executando->cpus[tarefa->cpu].tarefa = -1;
-                 tarefa->cpu = -1;
+                 soltar_cpu(executando, tarefa);
                  tarefa->estado = EST_PRONTA;
              }
          }
@@ -324,18 +380,22 @@ int sim_iniciar(Simulacao *s, Estado *inicial, Diagnostico *d)
 
     /* Cópia independente: quem chamou pode liberar 'inicial' depois. Se o
      * malloc falhar, o clone volta com ntarefas/ncpus zerados. */
-    s->atual = estado_clonar(inicial);
-    if (s->atual.ntarefas != inicial->ntarefas || s->atual.ncpus != inicial->ncpus)
+    if (!clonar(&s->atual, inicial))
     {
-        estado_liberar(&s->atual);
         diag_erro(d, "falta de memoria ao iniciar a simulacao");
         return 0;
     }
 
+    s->limite_ticks = calcular_limite(&s->atual);
     ativar(s);    /* ativações que já valem no tick 0 */
     escalonar(s); /* primeira atribuição de CPUs */
     s->terminada = todas_concluidas(&s->atual);
-    snapshot(s);  /* historico[0] = tick 0 (requisito 1.5.2) */
+    if (!snapshot(s)) /* historico[0] = tick 0 (requisito 1.5.2) */
+    {
+        sim_liberar(s);
+        diag_erro(d, "falta de memoria ao iniciar a simulacao");
+        return 0;
+    }
     return 1;
 }
 
@@ -351,13 +411,15 @@ int sim_avancar(Simulacao *s)
 
     /* Rede de segurança contra simulação que nunca termina (ex.: tarefa
      * suspensa que ninguém retoma). Corta no limite e AVISA o usuário, em
-     * vez de deixar o programa rodando sem fim. A mensagem é a mesma de
-     * sim_executar_tudo, para os dois modos avisarem igual. */
-    if (s->atual.tick >= MAX_TICKS)
+     * vez de deixar o programa rodando sem fim. O limite vem do arquivo
+     * (calcular_limite) e fica depois do fim natural: uma simulação normal
+     * nunca chega nele. Vale igual para os dois modos (passo a passo e
+     * sim_executar_tudo), que passam por aqui. */
+    if (s->atual.tick >= s->limite_ticks)
     {
         s->terminada = 1;
         snprintf(s->ultimo_evento, sizeof s->ultimo_evento,
-                 "simulacao interrompida no limite de %d ticks", MAX_TICKS);
+                 "simulacao interrompida no limite de %d ticks", s->limite_ticks);
         return 0;
     }
 
@@ -377,7 +439,14 @@ int sim_avancar(Simulacao *s)
         snprintf(s->ultimo_evento, sizeof s->ultimo_evento,
                  "simulacao concluida no tick %d", s->atual.tick);
 
-    snapshot(s);         /* guarda a foto deste tick (req. 1.5.2)       */
+    /* Guarda a foto deste tick (req. 1.5.2). Sem memória para ela, a
+     * simulação para aqui, com aviso, em vez de derrubar o programa. */
+    if (!snapshot(s))
+    {
+        s->terminada = 1;
+        snprintf(s->ultimo_evento, sizeof s->ultimo_evento,
+                 "memoria insuficiente: simulacao interrompida no tick %d", s->atual.tick);
+    }
     return 1;
 }
 
@@ -433,30 +502,52 @@ void sim_executar_tudo(Simulacao *s)
 {
     /* A condição do laço é o RETORNO de sim_avancar: ela devolve 0 quando
      * não executou nenhum tick. Assim o laço nunca gira parado, o que
-     * poderia acontecer com "while (!s->terminada)". O limite de MAX_TICKS
+     * poderia acontecer com "while (!s->terminada)". O limite de ticks
      * (e o aviso de que a simulação foi CORTADA) fica no próprio sim_avancar. */
     while (sim_avancar(s))
         ;
 }
 
-/* Converte 'txt' em inteiro. Devolve 1 se o texto INTEIRO é um número
- * ("12"), 0 se não é ("abc", "", "12x") ou não cabe num int
- * ("99999999999"). O strtol diz onde parou de ler: se não andou nada, não
- * havia número; se sobrou texto, não era só número. Número grande demais
- * para um long o strtol avisa pelo errno; para um int, o teste é à mão
- * (no Linux 64 bits o long é maior que o int). */
-static int ler_inteiro(const char *txt, int *saida)
+/* CÓPIA ATÉ O FIM (req. 2.4) — a imagem exportada tem de ser a simulação
+ * INTEIRA, mesmo que o usuário exporte no meio. Em vez de avançar a
+ * simulação da tela, copia e avança a cópia.
+ *
+ * A cópia reaproveita as fotos que já existem (só são lidas, não precisam
+ * ser duplicadas) e só calcula os ticks que faltam. */
+int sim_copiar_ate_o_fim(const Simulacao *s, Simulacao *copia)
 {
-    char *fim;
-    long v;
-    errno = 0;
-    v = strtol(txt, &fim, 10);
-    if (fim == txt || *fim != '\0' || errno == ERANGE || v < INT_MIN || v > INT_MAX)
+    *copia = *s; /* escalonador, limite, terminada... */
+
+    /* Vetor de fotos PRÓPRIO: ao avançar, o snapshot da cópia faz realloc
+     * nele, e um realloc no vetor de 's' poderia mudá-lo de lugar e
+     * estragar a simulação da tela. As fotos dentro dele são as mesmas. */
+    copia->historico = malloc(s->n_hist * sizeof(Estado));
+    if (copia->historico == NULL)
         return 0;
-    *saida = (int)v;
+    memcpy(copia->historico, s->historico, s->n_hist * sizeof(Estado));
+    copia->cap_hist = s->n_hist;
+
+    /* O estado atual muda a cada tick: este sim precisa ser uma cópia de
+     * verdade (clonar, como no retroceder). */
+    if (!clonar(&copia->atual, &s->atual))
+    {
+        free(copia->historico);
+        return 0;
+    }
+
+    sim_executar_tudo(copia);
     return 1;
 }
-
+/* Libera SÓ o que a cópia criou: as fotos do n_hist de 's' em diante e o
+ * estado atual dela. As fotos anteriores são de 's' e continuam em uso:
+ * por isso NÃO se usa sim_liberar aqui. */
+void sim_liberar_copia(const Simulacao *s, Simulacao *copia)
+{
+    for (int i = s->n_hist; i < copia->n_hist; i++)
+        estado_liberar(&copia->historico[i]);
+    free(copia->historico);
+    estado_liberar(&copia->atual);
+}
 static int aplicar_edicao(Simulacao *s, int id_tarefa, const char *campo,
                           const char *valor, char *motivo, int motivo_tam)
 {

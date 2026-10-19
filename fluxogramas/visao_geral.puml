@@ -36,8 +36,8 @@ package "O que a pessoa vê" {
 }
 
 package "A ponte entre a tela e a simulação" {
-  rectangle "<b>Mensageiro</b>\nleva os pedidos da tela até a\nsimulação e traz as respostas\n<size:11><color:#607D8B>servidor.c (em construção)</color></size>" as mensageiro #FFF3E0
-  rectangle "<b>Tradutor</b>\ntransforma o estado da simulação\nnum texto que a tela entende\n<size:11><color:#607D8B>estado_json.c (em construção)</color></size>" as tradutor #FFF3E0
+  rectangle "<b>Mensageiro</b>\nleva os pedidos da tela até a\nsimulação e traz as respostas\n<size:11><color:#607D8B>servidor.c</color></size>" as mensageiro #FFF3E0
+  rectangle "<b>Tradutor</b>\ntransforma o estado da simulação\nnum texto que a tela entende\n<size:11><color:#607D8B>estado_json.c</color></size>" as tradutor #FFF3E0
 }
 
 package "O cérebro da simulação" {
@@ -48,7 +48,7 @@ package "O cérebro da simulação" {
 
 package "Entrada e saída de arquivos" {
   rectangle "<b>Leitor</b>\nentende o arquivo de configuração\ne aponta os erros dele\n<size:11><color:#607D8B>config.c</color></size>" as leitor #E8F5E9
-  rectangle "<b>Desenhista</b>\ngera a imagem final\ndo gráfico de Gantt\n<size:11><color:#607D8B>gantt.c</color></size>" as desenhista #E8F5E9
+  rectangle "<b>Desenhista</b>\ndesenha o gráfico de Gantt:\no da tela, a cada passo,\ne a imagem final inteira\n<size:11><color:#607D8B>gantt.c</color></size>" as desenhista #E8F5E9
 }
 
 file "Arquivo de configuração\nescolhido pela pessoa\n<size:11><color:#607D8B>ex.: tarefas.txt</color></size>" as arq_config #FFFFFF
@@ -70,8 +70,9 @@ relogio    -down->   fichas     : 8. atualiza
 juiz       -down->   fichas     : consulta
 mensageiro -right--> tradutor   : 9. traduz o\nresultado
 tradutor   -up-->    tela       : 10. mostra o\nnovo passo
-mensageiro -down-->  desenhista : 11. exportar a imagem
-desenhista -down->   arq_imagem : grava
+mensageiro -down-->  desenhista : 11. desenha o Gantt\n(tela ou exportar)
+desenhista -up-->    tela       : 12. gráfico\ndo passo
+desenhista -down->   arq_imagem : 13. imagem da\nsimulação inteira
 
 ' =================================== notas ===================================
 
@@ -82,6 +83,15 @@ note right of tela
   tela <b>dentro</b> do executável. Por isso o
   simulador funciona sem nenhuma pasta
   ao lado dele.
+end note
+
+note bottom of desenhista
+  <b>A imagem final não é um print</b>
+  O desenhista lê as fotos guardadas pelo
+  relógio e desenha a simulação <b>inteira</b>.
+  Se a pessoa exportar no meio, uma cópia
+  da simulação é levada até o fim só para
+  o desenho; a tela continua onde estava.
 end note
 
 note bottom of fichas

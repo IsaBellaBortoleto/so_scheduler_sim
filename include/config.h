@@ -71,4 +71,8 @@ int config_carregar_texto(const char *conteudo, Estado *e, Diagnostico *d);
  * byte ("EDF" == "edf", mas "É" != "é"). */
 int str_igual_ci(const char *a, const char *b);
 
+/* Converte 'txt' em int. Retorna 1 se o texto INTEIRO e um numero ("12"),
+ * 0 se nao e ("abc", "", "12x") ou nao cabe num int. */
+int ler_inteiro(const char *txt, int *saida);
+
 #endif

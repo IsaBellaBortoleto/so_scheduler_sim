@@ -3,8 +3,8 @@ title Relacionamento entre arquivos — so_scheduler_sim
 
 ' ----------------------------------------------------------------------------
 ' Gerado a partir dos #include reais do repositorio e das referencias entre os
-' arquivos de web/. Arquivos com fundo amarelo ainda NAO existem: so o .h foi
-' escrito. Atualize este diagrama quando eles forem criados.
+' arquivos de web/ (conferido em 19/10/2026). Ao criar um arquivo novo ou um
+' #include novo, atualize este diagrama.
 ' ----------------------------------------------------------------------------
 
 skinparam shadowing false
@@ -14,10 +14,6 @@ skinparam ArrowColor #616161
 skinparam file {
   BackgroundColor #FFFFFF
   BorderColor #616161
-}
-skinparam file<<a implementar>> {
-  BackgroundColor #FFF8E1
-  BorderColor #F9A825
 }
 skinparam artifact {
   BackgroundColor #F1F8E9
@@ -46,8 +42,8 @@ package "src/  (implementacoes: como cada modulo faz)" {
   file "escalonador.c" as esc_c
   file "kernel.c"      as kernel_c
   file "gantt.c"       as gantt_c
-  file "estado_json.c" as json_c <<a implementar>>
-  file "servidor.c"    as serv_c <<a implementar>>
+  file "estado_json.c" as json_c
+  file "servidor.c"    as serv_c
 }
 
 package "ferramentas/  (roda so no build)" {
@@ -99,6 +95,8 @@ esc_c ..> config_h : str_igual_ci
 
 ' o servidor transforma a Simulacao em JSON para responder a pagina
 serv_c ..> json_h
+' e pede o SVG do Gantt (tela e exportacao) ao gantt.c
+serv_c ..> gantt_h
 
 ' ================ build: a pagina vira bytes dentro do .exe ==================
 
@@ -114,7 +112,7 @@ serv_c      -[#2E7D32]-> recursos_h  : inclui
 
 html -[#1565C0,dashed]-> css : <link>
 html -[#1565C0,dashed]-> js  : <script>
-js   -[#1565C0]-> serv_c     : HTTP /api/*
+js   -[#1565C0]-> serv_c     : HTTP /api/* (JSON e SVG)
 
 ' ================================= legenda ===================================
 
@@ -124,7 +122,6 @@ legend right
   | cinza com triangulo | o .c implementa o .h |
   | verde | etapa do build (make) |
   | azul | interface web / HTTP |
-  |<#FFF8E1> fundo amarelo | arquivo ainda nao existe |
   |<#F1F8E9> fundo verde | arquivo gerado pelo build |
 endlegend
 

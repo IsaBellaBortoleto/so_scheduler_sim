@@ -1,0 +1,79 @@
+@startuml sequencia_avancar
+title O que acontece num clique em "avançar"
+
+' ----------------------------------------------------------------------------
+' Diagrama de SEQUENCIA (UML). Cada coluna e um arquivo do projeto; as setas
+' sao chamadas de funcao (dentro do C) ou pedidos HTTP (entre o navegador e o
+' C), na ordem em que acontecem. Conferido com o codigo em 19/10/2026.
+' ----------------------------------------------------------------------------
+
+skinparam shadowing false
+skinparam defaultFontName Arial
+skinparam sequenceMessageAlign left
+skinparam ParticipantPadding 8
+skinparam BoxPadding 6
+
+actor "Pessoa" as pessoa
+
+box "Navegador" #E3F2FD
+  participant "app.js" as js
+end box
+
+box "simulador.exe (C)" #FFF3E0
+  participant "servidor.c" as srv
+  participant "kernel.c" as ker
+  participant "escalonador.c" as esc
+  participant "estado_json.c" as json
+  participant "gantt.c" as gantt
+end box
+
+pessoa -> js : clica em "avançar"
+js -> srv : POST /api/avancar\n(chamarApi, com fetch)
+activate srv
+note right of srv
+  accept: uma conversa por vez;
+  limitar_espera: desiste em 500 ms
+  de conexão parada
+end note
+srv -> srv : ler_pedido + atender\n(o roteador escolhe a rota)
+srv -> ker : sim_avancar(sim)
+activate ker
+ker -> ker : 1. executar()
+ker -> ker : 2. tick++
+ker -> ker : 3. verificar_prazos()
+ker -> ker : 4. ativar()  (chegadas e pendentes)
+ker -> esc : 5. escalonar() -> escalonador_ordenar()
+activate esc
+esc -> esc : prioridade RM ou EDF\n+ desempate em cascata\n(sorteio determinístico)
+esc --> ker : candidatas em ordem
+deactivate esc
+ker -> ker : as N primeiras ficam com as CPUs;\nCPU sobrando fica desligada
+ker -> ker : 6. snapshot()  (foto no histórico)
+ker --> srv : 1 = andou um tick
+deactivate ker
+srv -> json : estado_json_com_avisos()
+activate json
+json --> srv : texto JSON do tick atual
+deactivate json
+srv --> js : 200 OK + JSON do estado
+deactivate srv
+
+js -> js : aplicarNovoEstado():\ncabeçalho, tabelas de CPUs\ne de tarefas, último evento
+js -> srv : GET /api/gantt?v=N\n(atualizarGantt: troca o src do <img>)
+activate srv
+srv -> gantt : gantt_svg(janela dos últimos ticks)
+activate gantt
+gantt -> gantt : lê as fotos do histórico;\nmarca_em() compara cada foto\ncom a anterior (▲ ▼ ✖ ★)
+gantt --> srv : SVG gravado num arquivo em %TEMP%
+deactivate gantt
+srv --> js : 200 OK + SVG
+deactivate srv
+js --> pessoa : tela e gráfico atualizados
+
+note over js, gantt
+  A página não calcula nada da simulação: só pede ao C e mostra.
+  Por isso fechar e reabrir o navegador não perde nada
+  (ao abrir, ela pede GET /api/estado e redesenha).
+end note
+
+@enduml

@@ -1,0 +1,66 @@
+@startuml estados_tarefa
+title Ciclo de vida de uma tarefa (máquina de estados)
+
+' ----------------------------------------------------------------------------
+' Diagrama de MAQUINA DE ESTADOS (UML). Os estados sao o enum EstadoTarefa
+' (tcb.h). Setas cheias = o nucleo (kernel.c) muda sozinho, a cada tick;
+' setas tracejadas = edicao manual pelo painel (sim_editar_tarefa).
+' Conferido com o codigo em 19/10/2026.
+' ----------------------------------------------------------------------------
+
+skinparam shadowing false
+skinparam defaultFontName Arial
+skinparam ArrowColor #455A64
+skinparam state {
+  BackgroundColor #FFFFFF
+  BorderColor #546E7A
+}
+
+state INATIVA #ECEFF1
+INATIVA : esperando a próxima chegada\n(ou antes do ingresso)
+state PRONTA #E3F2FD
+PRONTA : chegou; espera CPU na fila global\n(no Gantt: só o contorno)
+state EXECUTANDO #E8F5E9
+EXECUTANDO : ocupa uma CPU\n(no Gantt: cor da tarefa + nº da CPU)
+state SUSPENSA #CFD8DC
+SUSPENSA : parada, guarda o que faltava\n(no Gantt: pontilhado preto)
+state CONCLUIDA #B0BEC5
+CONCLUIDA : fez as 10 execuções
+
+[*] --> INATIVA : arquivo carregado
+
+INATIVA --> PRONTA : ativar(): chegada em\ningresso + k · Pi
+PRONTA --> EXECUTANDO : escalonar(): está entre as\nN mais prioritárias
+EXECUTANDO --> PRONTA : preempção (chegou outra\nmais prioritária) ou\nquantum esgotado
+EXECUTANDO --> PRONTA : terminou e já há execução\npendente: a próxima começa
+EXECUTANDO --> INATIVA : executar(): terminou a execução\n(menos de 10), sem pendente
+EXECUTANDO --> CONCLUIDA : executar(): terminou\na 10ª execução
+CONCLUIDA --> [*]
+
+PRONTA --> PRONTA : chegada enquanto ocupada:\npendentes + 1
+EXECUTANDO --> EXECUTANDO : chegada enquanto ocupada:\npendentes + 1
+
+INATIVA -[dashed]-> PRONTA : edição: chegada antecipada
+PRONTA -[dashed]-> SUSPENSA : edição
+EXECUTANDO -[dashed]-> SUSPENSA : edição (solta a CPU)
+SUSPENSA -[dashed]-> PRONTA : edição: retomar
+SUSPENSA --> SUSPENSA : chegada: pendentes + 1
+
+note right of EXECUTANDO
+  <b>Prazo perdido não muda o estado</b>
+  No tick do prazo absoluto (chegada + Di),
+  verificar_prazos() só MARCA a execução
+  (✖ no Gantt); ela continua até terminar.
+end note
+
+note left of SUSPENSA
+  <b>Edições recusadas, com motivo</b>
+  - forçar EXECUTANDO (quem dá CPU é o escalonador)
+  - reabrir uma CONCLUIDA (passaria das 10)
+  - suspender uma INATIVA (não há o que suspender)
+  A edição também pode marcar INATIVA ou CONCLUIDA.
+  No Projeto A, SUSPENSA só vem da edição;
+  no B, virá dos eventos de E/S e mutex.
+end note
+
+@enduml

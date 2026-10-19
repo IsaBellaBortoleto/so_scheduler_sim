@@ -497,6 +497,28 @@ static void teste_prazos(void)
     assert(s.atual.tick == 56 && s.n_hist == 57);
     sim_liberar(&s);
 
+    /* Req. 2.4: sem tempo maximo fixo. Periodo 800: a 10a chegada e no
+     * tick 7200, depois dos antigos 5000. O limite vem do arquivo, entao a
+     * simulacao termina sozinha, com as 10 execucoes. */
+    iniciar_de_texto(&s, "RM;0;1\n1;;0;1;800");
+    assert(s.limite_ticks > 7201);
+    sim_executar_tudo(&s);
+    assert(s.atual.tick == 7201 && s.atual.tarefas[0].ativacoes == MAX_ATIVACOES);
+    assert(strstr(s.ultimo_evento, "concluida") != NULL);
+    sim_liberar(&s);
+
+    /* O limite continua existindo para o que nao termina sozinho: tarefa
+     * suspensa a mao e nunca retomada. Para no limite, com aviso. */
+    iniciar_de_texto(&s, "RM;0;1\n1;;0;2;5");
+    {
+        char m[256];
+        assert(sim_editar_tarefa(&s, 1, "estado", "suspensa", m, sizeof m));
+    }
+    sim_executar_tudo(&s);
+    assert(s.terminada == 1 && s.atual.tick == s.limite_ticks);
+    assert(strstr(s.ultimo_evento, "interrompida") != NULL);
+    sim_liberar(&s);
+
     /* Requisito 1.2: em nenhum tick pode haver tarefa PRONTA e CPU ociosa
      * ao mesmo tempo. Conferido do tick 0 ate o fim da simulacao. */
     iniciar_de_texto(&s, "RM;2;2\n1;;0;2;6\n2;;0;3;9\n3;;0;2;12;10\n4;;4;1;8");
@@ -670,6 +692,28 @@ static void teste_gantt(void)
     }
 
     printf("autoteste: gantt_svg ... ok\n");
+    /* Req. 2.4: exportar no MEIO da a simulacao inteira, e a simulacao da
+     * tela continua onde estava. */
+    {
+        Simulacao copia;
+        int k, fim_copia;
+
+        iniciar_de_texto(&s, "RM;0;2\n1;FF0000;0;2;6\n2;;1;3;8");
+        for (k = 0; k < 5; k++)
+            assert(sim_avancar(&s));
+        assert(sim_copiar_ate_o_fim(&s, &copia));
+        assert(copia.terminada && copia.n_hist > s.n_hist);
+        fim_copia = copia.n_hist;
+        sim_liberar_copia(&s, &copia);
+
+        /* A original não mudou: mesmo tick, mesmo histórico, não terminada. */
+        assert(s.atual.tick == 5 && s.n_hist == 6 && !s.terminada);
+
+        /* E a cópia chegou ao MESMO fim que a simulação de verdade chega. */
+        sim_executar_tudo(&s);
+        assert(s.n_hist == fim_copia);
+        sim_liberar(&s);
+    }
 }
 
 /* JSON dos erros e avisos do carregamento (estado_json.h). */

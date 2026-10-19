@@ -42,17 +42,23 @@
  *     diag_erro(d, "linha %d: quantum invalido \"%s\"", n, txt);
  * A lista tem tamanho fixo: depois de MAX_DIAG erros os seguintes são
  * ignorados (o arquivo já está reprovado de qualquer forma, n_erros > 0). */
+/* Parte comum de diag_erro e diag_aviso: grava a mensagem em lista[*n]. */
+static void diag_add(char lista[][MAX_DIAG_TXT], int *n, const char *fmt, va_list args)
+{
+    /* Proteção contra Out-of-Bounds (Acesso indevido a índices do array).
+     * Se já atingimos o limite de mensagens que a interface web consegue
+     * exibir, ignoramos o resto silenciosamente. */
+    if (*n >= MAX_DIAG)
+        return;
+    /* Escrita segura: o vsnprintf garante que, no máximo, MAX_DIAG_TXT
+     * bytes serão escritos na string de destino, prevenindo Buffer
+     * Overflows se a mensagem gerada for excessivamente longa. */
+    vsnprintf(lista[*n], MAX_DIAG_TXT, fmt, args);
+    (*n)++;
+}
+
 void diag_erro(Diagnostico *d, const char *fmt, ...)
 {
-
-
-    /* Proteção contra Out-of-Bounds (Acesso indevido a índices do array).
-     * Se já atingimos o limite de mensagens que a interface web consegue 
-     * exibir, ignoramos o resto silenciosamente. */
-    if (d->n_erros >= MAX_DIAG)
-    {
-        return;
-    }
     /* TEORIA DE FUNÇÕES VARIÁDICAS (va_list):
      * Em C, '...' na assinatura da função significa que ela aceita um número 
      * indefinido de argumentos (como no printf). 
@@ -63,11 +69,10 @@ void diag_erro(Diagnostico *d, const char *fmt, ...)
     va_list args;
     va_start(args, fmt);
     /* Monta a mensagem final fundindo a string base (fmt) com os argumentos (args) */
-    vsnprintf(d->erros[d->n_erros], MAX_DIAG_TXT, fmt, args);
+    diag_add(d->erros, &d->n_erros, fmt, args);
     /* O 'va_end' limpa e reorganiza o ponteiro da pilha (stack) da CPU.
      * Se esquecido, pode causar vazamento de recursos ou travamento. */
     va_end(args);
-    d->n_erros++;
 }
 /* ============================================================================
  * Requisito 4.4
@@ -79,22 +84,12 @@ void diag_erro(Diagnostico *d, const char *fmt, ...)
 
 void diag_aviso(Diagnostico *d, const char *fmt, ...)
 {
-   //Proteção no limite do array
-    if (d->n_avisos >= MAX_DIAG)
-    {
-        return;
-    }
     /* Preparação da pilha (stack) para ler os argumentos variáveis (...) */
     va_list args;
     va_start(args, fmt);
-    /* Escrita segura do aviso: o vsnprintf garante que, no máximo, 
-     * MAX_DIAG_TXT bytes serão escritos na string de destino, prevenindo
-     * Buffer Overflows se a mensagem gerada for excessivamente longa. */
-    vsnprintf(d->avisos[d->n_avisos], MAX_DIAG_TXT, fmt, args);
+    diag_add(d->avisos, &d->n_avisos, fmt, args);
     //Limpeza obrigatória do ponteiros de argumentos
     va_end(args);
-
-    d->n_avisos++;
 }
 /* ------------------------------ utilitários ------------------------------ */
 //Cumpre o requisito 3.3.2 
@@ -244,28 +239,19 @@ static int split_campos(char *linha, char *campos[], int max)
     return n;
 }
 
-/* Converte o texto de um campo em número.
- * Campo vazio => devolve 'padrao', sem erro.
- * Texto ruim => devolve 0 e põe 0 em *ok.
- * Converte o texto de um campo em número inteiro.*/
-static int campo_int(const char *txt, int padrao, int *ok)
+/* Converte 'txt' em inteiro. Devolve 1 se o texto INTEIRO é um número
+ * ("12"), 0 se não é ("abc", "", "12x") ou não cabe num int
+ * ("99999999999"). Usada aqui (campo_int) e na edição de tarefas (kernel.c). */
+int ler_inteiro(const char *txt, int *saida)
 {
     /* O strtol vai alterar este ponteiro para apontar para o exato caractere
      * onde ele parou de ler o número. */
     char *fim;
     long valor;
-    //Assumimos sucesso (1) à partida. Usamos passagem por referência (ponteiro *ok)
-    *ok = 1;
-
-    /* REQUISITO 3.2 
-     * Se o campo estiver totalmente em branco, não é um erro. O sistema 
-     * aplica silenciosamente a configuração padrão passada pelo chamador. */
-    if (txt == NULL || *txt == '\0')
-        return padrao;
 
     /* Reseta a flag de erro global da thread (errno) do Sistema Operativo
-     * ANTES de chamar a função, garantindo que não estamos a ler um erro 
-     * antigo deixado por outra função. */    
+     * ANTES de chamar a função, garantindo que não estamos a ler um erro
+     * antigo deixado por outra função. */
     errno = 0;
     /* Converte a string para long usando a base 10 (decimal). */
     valor = strtol(txt, &fim, 10);
@@ -275,12 +261,29 @@ static int campo_int(const char *txt, int padrao, int *ok)
      * ERANGE/limites: número grande demais. */
     if (fim == txt || *fim != '\0' ||
         errno == ERANGE || valor < INT_MIN || valor > INT_MAX)
-    {
-        *ok = 0;
         return 0;
-    }
 
-    return (int)valor;
+    *saida = (int)valor;
+    return 1;
+}
+
+/* Converte o texto de um campo em número.
+ * Campo vazio => devolve 'padrao', sem erro.
+ * Texto ruim => devolve 0 e põe 0 em *ok.
+ * Converte o texto de um campo em número inteiro.*/
+static int campo_int(const char *txt, int padrao, int *ok)
+{
+    int valor = 0;
+
+    /* REQUISITO 3.2
+     * Se o campo estiver totalmente em branco, não é um erro. O sistema
+     * aplica silenciosamente a configuração padrão passada pelo chamador. */
+    *ok = 1;
+    if (*txt == '\0')
+        return padrao;
+
+    *ok = ler_inteiro(txt, &valor);
+    return valor;
 }
 
 /* Converte "F0E0D0" em três componentes RGB.
@@ -291,7 +294,7 @@ static int campo_cor(const char *txt, TCB *t)
     unsigned int r, g, b;
 
     /* Tratamento de ausência de dados */
-    if (txt == NULL || *txt == '\0')
+    if (*txt == '\0')
     {
         t->r = PADRAO_COR_R;
         t->g = PADRAO_COR_G;
@@ -499,7 +502,7 @@ int config_carregar_texto(const char *conteudo, Estado *e, Diagnostico *d)
          * para não apontar um número que não está no arquivo. */
         if (ok && t.periodo == 0)
         {
-            if (campos[4] == NULL || *campos[4] == '\0')
+            if (*campos[4] == '\0')
                 diag_aviso(d,
                            "linha %d: tarefa \"%s\": periodo nao informado; "
                            "padrao 0 (aperiodica), tarefa ignorada",

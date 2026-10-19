@@ -245,6 +245,10 @@ static void responder_texto(soquete_t c, const char *status, const char *msg)
  * na pilha, e pode ser um só porque o servidor atende um pedido por vez. */
 static char json[262144];
 
+/* Erros e avisos das rotas que podem recusar o pedido. Pelo mesmo motivo
+ * do 'json' é um só, 'static' (tem uns 25 KB); atender() zera a cada pedido. */
+static Diagnostico diag;
+
 /* Arquivos da página (/, /app.js, /estilo.css). Eles estão DENTRO do
  * executável, na tabela RECURSOS_WEB de recursos_web.h. Procura o caminho
  * pedido na tabela; devolve 1 se achou e respondeu, 0 se não é da página. */
@@ -263,17 +267,24 @@ static int servir_recurso(soquete_t c, const Pedido *p)
     return 0; /* olhou a tabela INTEIRA e não achou */
 }
 
+/* Manda os 'n' bytes já montados em 'json'; n < 0 = não coube, e vai o
+ * 500 com a mensagem 'erro'. */
+static void responder_json(soquete_t c, int n, const char *erro)
+{
+    if (n < 0)
+        responder_texto(c, "500 Internal Server Error", erro);
+    else
+        responder(c, "200 OK", "application/json; charset=utf-8", "", json, (size_t)n);
+}
+
 /* Manda o estado atual da simulação em JSON. É a resposta de quase todas as
  * rotas /api: a página sempre recebe o estado novo e se redesenha.
  * 'd' traz os avisos a mandar junto; NULL = sem avisos (todas as rotas,
  * menos a de carregar). */
 static void responder_estado(Simulacao *sim, soquete_t c, const Diagnostico *d)
 {
-    int n = estado_json_com_avisos(sim, d, json, sizeof json);
-    if (n < 0)
-        responder_texto(c, "500 Internal Server Error", "estado grande demais");
-    else
-        responder(c, "200 OK", "application/json; charset=utf-8", "", json, (size_t)n);
+    responder_json(c, estado_json_com_avisos(sim, d, json, sizeof json),
+                   "estado grande demais");
 }
 
 /* Manda a lista de erros: {"erro":true,"erros":[...],"avisos":[...]}. O
@@ -281,11 +292,7 @@ static void responder_estado(Simulacao *sim, soquete_t c, const Diagnostico *d)
  * a edição, e a página sabe disso pelo campo "erro". */
 static void responder_erros(soquete_t c, const Diagnostico *d)
 {
-    int n = diagnostico_json(d, json, sizeof json);
-    if (n < 0)
-        responder_texto(c, "500 Internal Server Error", "erros demais para listar");
-    else
-        responder(c, "200 OK", "application/json; charset=utf-8", "", json, (size_t)n);
+    responder_json(c, diagnostico_json(d, json, sizeof json), "erros demais para listar");
 }
 /* Arquivo de texto só tem caracteres visíveis e as quebras de linha
  * (\n, \r, \t). Byte zero ou outro caractere de controle (< 0x20) é sinal
@@ -307,35 +314,33 @@ static int parece_texto(const char *dados, size_t tam)
  * a lista de erros, e a simulação anterior continua valendo. */
 static void rota_carregar(Simulacao *sim, soquete_t c, const Pedido *p)
 {
-    static Diagnostico d; /* static: tem uns 25 KB */
     Estado ini;
     int ok = 0;
 
-    memset(&d, 0, sizeof d);
     if (p->corpo == NULL)
-        diag_erro(&d, "nenhum arquivo foi enviado");
+        diag_erro(&diag, "nenhum arquivo foi enviado");
     else if (!parece_texto(p->corpo, p->tam_corpo))
-        diag_erro(&d, "o arquivo escolhido nao e um arquivo de texto; "
-                      "escolha o .txt de configuracao");
+        diag_erro(&diag, "o arquivo escolhido nao e um arquivo de texto; "
+                         "escolha o .txt de configuracao");
     else
-        ok = config_carregar_texto(p->corpo, &ini, &d);
+        ok = config_carregar_texto(p->corpo, &ini, &diag);
 
     if (ok)
     {
         /* A memória da simulação anterior é liberada dentro de
          * sim_iniciar, e só depois de o arquivo novo ser aceito. */
-        ok = sim_iniciar(sim, &ini, &d);
+        ok = sim_iniciar(sim, &ini, &diag);
         estado_liberar(&ini); /* sim_iniciar guardou uma cópia */
     }
     /* Se config_carregar_texto falhou, ela mesma já liberou 'ini'. */
 
     if (ok)
     {
-        /* &d: os avisos do carregamento vão junto com o estado. */
-        responder_estado(sim, c, &d);
+        /* &diag: os avisos do carregamento vão junto com o estado. */
+        responder_estado(sim, c, &diag);
         return;
     }
-    responder_erros(c, &d); /* falhou: a simulação anterior continua */
+    responder_erros(c, &diag); /* falhou: a simulação anterior continua */
 }
 
 /* POST /api/editar (req. 1.5.2 e 3.4): muda o estado ou um campo de uma
@@ -345,12 +350,9 @@ static void rota_carregar(Simulacao *sim, soquete_t c, const Pedido *p)
  * formato de erro do carregamento: {"erro":true,"erros":["motivo"],...}. */
 static void rota_editar(Simulacao *sim, soquete_t c, const Pedido *p)
 {
-    static Diagnostico d;       /* static: tem uns 25 KB */
     int id;
     char campo[32], valor[64];
     char motivo[MAX_DIAG_TXT];  /* sim_editar_tarefa escreve aqui o porquê */
-
-    memset(&d, 0, sizeof d);
 
     /* O corpo chega como {"id":3,"campo":"estado","valor":"pronta"}.
      * %31[^"] lê tudo até a próxima aspa, no máximo 31 caracteres (o
@@ -363,7 +365,7 @@ static void rota_editar(Simulacao *sim, soquete_t c, const Pedido *p)
         sscanf(p->corpo, "{\"id\":%d,\"campo\":\"%31[^\"]\",\"valor\":\"%63[^\"]\"}",
                &id, campo, valor) != 3)
     {
-        diag_erro(&d, "pedido de edicao mal formado");
+        diag_erro(&diag, "pedido de edicao mal formado");
     }
     else if (sim_editar_tarefa(sim, id, campo, valor, motivo, sizeof motivo))
     {
@@ -375,29 +377,27 @@ static void rota_editar(Simulacao *sim, soquete_t c, const Pedido *p)
     {
         /* "%s" e não o motivo direto como formato: ele contém texto do
          * usuário, e um '%' digitado seria lido como formato do printf. */
-        diag_erro(&d, "%s", motivo);
+        diag_erro(&diag, "%s", motivo);
     }
-    responder_erros(c, &d);
+    responder_erros(c, &diag);
 }
 
 /* POST /api/algoritmo (req. 3.1): troca o algoritmo no meio da simulação.
  * O corpo é só o nome ("EDF"). Quem valida é o núcleo. */
 static void rota_algoritmo(Simulacao *sim, soquete_t c, const Pedido *p)
 {
-    static Diagnostico d;
     char motivo[MAX_DIAG_TXT];
 
-    memset(&d, 0, sizeof d);
     if (p->corpo == NULL)
-        diag_erro(&d, "nenhum algoritmo informado");
+        diag_erro(&diag, "nenhum algoritmo informado");
     else if (sim_trocar_algoritmo(sim, p->corpo, motivo, sizeof motivo))
     {
         responder_estado(sim, c, NULL);
         return;
     }
     else
-        diag_erro(&d, "%s", motivo);   /* "%s": o motivo traz texto do usuário */
-    responder_erros(c, &d);
+        diag_erro(&diag, "%s", motivo);   /* "%s": o motivo traz texto do usuário */
+    responder_erros(c, &diag);
 }
 
 /* GET /api/gantt e /api/exportar_svg (req. 2.3 e 2.4): o gráfico de Gantt
@@ -421,6 +421,9 @@ static void responder_svg(soquete_t c, const Simulacao *sim, int inteira)
     FILE *f;
     char *svg = NULL;
     long tam = -1;
+    Simulacao copia;
+    const Simulacao *desenho = sim; /* qual simulação vai para o desenho */
+    int ok;
 
     /* Janela da tela: ~20 mil células por imagem. Arquivo pequeno cabe
      * inteiro; o do professor (~190 tarefas) fica com uns 100 ticks.
@@ -440,7 +443,24 @@ static void responder_svg(soquete_t c, const Simulacao *sim, int inteira)
         responder_texto(c, "500 Internal Server Error", "nao foi possivel criar o arquivo temporario");
         return;
     }
-    if (!gantt_svg(sim, f, ini, fim))
+    /* Req. 2.4: exportar no meio da simulação dá a simulação INTEIRA. Uma
+     * cópia é levada até o fim e desenhada; a da tela não muda. */
+    if (inteira && !sim->terminada && sim->n_hist > 0)
+    {
+        if (!sim_copiar_ate_o_fim(sim, &copia))
+        {
+            fclose(f);
+            remove(caminho);
+            responder_texto(c, "500 Internal Server Error", "falta de memoria para exportar");
+            return;
+        }
+        desenho = &copia;
+        fim = copia.n_hist - 1; /* o fim da cópia, não o tick da tela */
+    }
+    ok = gantt_svg(desenho, f, ini, fim);
+    if (desenho == &copia)
+        sim_liberar_copia(sim, &copia); /* o SVG já está no arquivo */
+    if (!ok)
     {
         fclose(f);
         remove(caminho);
@@ -493,6 +513,7 @@ static void atender(Simulacao *sim, soquete_t c)
         responder_texto(c, "400 Bad Request", "pedido invalido");
         return; /* sem free: em caso de falha a ler_pedido já liberou */
     }
+    memset(&diag, 0, sizeof diag);
     get = strcmp(p.metodo, "GET") == 0;
     post = strcmp(p.metodo, "POST") == 0;
 

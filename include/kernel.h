@@ -5,15 +5,22 @@
 #include "escalonador.h"
 #include "config.h"
 
+/* Limite de ticks (req. 2.4: a simulação não pode ficar presa a um tempo
+ * máximo fixo). O limite de cada simulação é calculado a partir do arquivo,
+ * em sim_iniciar (ver calcular_limite em kernel.c), e fica sempre depois do
+ * fim natural. MAX_TICKS é só o mínimo dele; MAX_MEMORIA_HIST é o máximo de
+ * memória que o histórico (uma foto por tick) pode ocupar. */
 #define MAX_TICKS 5000
+#define MAX_MEMORIA_HIST (1024LL * 1024 * 1024) /* 1 GB */
 
 
 typedef struct {
     Estado  atual;
-    Estado *historico;      
+    Estado *historico;
     int     n_hist, cap_hist;
     const Escalonador *esc;
     int     terminada;
+    int     limite_ticks; /* calculado em sim_iniciar, a partir do arquivo */
     char    ultimo_evento[256];
 } Simulacao;
 
@@ -37,4 +44,10 @@ int  sim_indice_por_id(const Estado *e, int id);
  * o porquê em 'motivo'. */
 int sim_trocar_algoritmo(Simulacao *s, const char *nome,
                          char *motivo, int motivo_tam);
+
+/* Cópia da simulação levada até o fim, para exportar o Gantt INTEIRO sem
+ * mexer na simulação da tela (req. 2.4). Devolve 1 se deu certo, 0 se
+ * faltou memória. Liberar SEMPRE com sim_liberar_copia. */
+int  sim_copiar_ate_o_fim(const Simulacao *s, Simulacao *copia);
+void sim_liberar_copia(const Simulacao *s, Simulacao *copia);
 #endif 

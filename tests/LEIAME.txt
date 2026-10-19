@@ -83,6 +83,10 @@ ARQUIVOS QUE DEVEM CARREGAR
 
 (No livro as tarefas se chamam A, B e C; aqui sao T1, T2 e T3.)
 
+15_periodos_longos.txt      periodos de 200 a 800, RM, 1 CPU
+                            observado (19/10): termina no tick 7250, as 4
+                            tarefas com as 10 execucoes, sem prazo perdido
+
 
 ARQUIVOS FEITOS PARA FALHAR (devem ser recusados com mensagem clara)
 --------------------------------------------------------------------
@@ -115,3 +119,11 @@ PROBLEMAS ENCONTRADOS COM ESTES ARQUIVOS (ja corrigidos)
    'pendentes' do TCB: a chegada espera na fila e comeca assim que a
    anterior termina, com o prazo contado da chegada. O autoteste
    (teste_prazos) confere em todo tick que nenhuma chegada some.
+
+3. 15_periodos_longos.txt: a simulacao era CORTADA no tick 5000 (limite
+   fixo MAX_TICKS), e T3 e T4 ficavam sem as 10 execucoes. O req. 2.4 diz
+   que a imagem nao pode ficar limitada a um tempo maximo. Corrigido com
+   calcular_limite (kernel.c): o limite vem do arquivo (2 x [ultima
+   chegada + trabalho total]), nunca menos que 5000, e com teto de 1 GB de
+   historico. So para no limite o que nao termina sozinho (ex.: tarefa
+   suspensa a mao e nunca retomada), com o aviso "interrompida".
