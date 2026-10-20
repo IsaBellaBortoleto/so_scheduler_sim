@@ -13,8 +13,6 @@ Esse trabalho foi desenvolvido em três partes: A, B e C. Em seguida, segue uma 
 
 ## Projeto B
 
-## Projeto C
-
 ---
 ### Planejamento
 - Para a dupla se organiza foi criado um Miro, que explica a lógica de como desenvolver o projeto:
