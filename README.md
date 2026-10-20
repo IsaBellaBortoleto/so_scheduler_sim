@@ -1,5 +1,5 @@
 # Simulador de SO Multitarefa
-Esse trabalho foi desenvolvido em três partes: A, B e C. Em seguida, segue uma explicação breve de cada parte.
+Esse trabalho foi desenvolvido em três partes: A e B. Em seguida, segue uma explicação breve de cada parte.
 
 **Autores(as):** 
 - Isabela Bella Bortoleto
