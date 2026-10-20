@@ -29,8 +29,15 @@ LDFLAGS =
 #          sistema operacional, presente em qualquer Windows -- nao e uma
 #          biblioteca a instalar. No Linux/Mac os sockets ja fazem parte da
 #          libc e nao precisam de nada.
+#
+#   SHELL  As receitas do Windows (mkdir, if exist, rmdir /S /Q, del) sao
+#          comandos do cmd.exe. Sem esta linha, o make usa o sh.exe se achar
+#          um no PATH (o do Git, por exemplo), e ai o "mkdir build" falha com
+#          "CreateProcess ... failed": o sh nao conhece os comandos do cmd.
+#          Aconteceu no notebook da apresentacao; aqui fica fixo no cmd.exe.
 # ---------------------------------------------------------------------------
 ifeq ($(OS),Windows_NT)
+    SHELL  = cmd.exe
     EXE    = .exe
     LDLIBS = -lws2_32
 else
