@@ -1,14 +1,15 @@
 # TESTE: 10 tarefas periodicas, RM, 2 CPUs.
 # Relato da defesa anterior: o professor rodou um arquivo com 10 tarefas.
+# Prazo = periodo em todas as tarefas (Di = Pi, premissa (b) do RM no livro).
 # ESPERADO: carrega sem erro; a simulacao termina sozinha.
 RM;2;2
 1;2A9D8F;8;1;8;8
 2;F4A261;9;1;8;8
-3;457B9D;8;3;15;14
+3;457B9D;8;3;15;15
 4;9B5DE5;7;5;30;30
-5;F15BB5;4;2;20;17
+5;F15BB5;4;2;20;20
 6;00BBF9;10;1;8;8
 7;00F5D4;4;1;12;12
 8;FEE440;8;2;12;12
 9;8338EC;8;3;24;24
-10;FB5607;10;2;12;10
+10;FB5607;10;2;12;12
