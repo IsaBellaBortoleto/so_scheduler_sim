@@ -30,14 +30,19 @@ static int n_algoritmos = 0;
  * literais. Ponteiro nulo ou tabela cheia: ignora. */
 void escalonador_registrar(const Escalonador *esc)
 {
+    /* 
+     * 1. Verifica se recebemos um ponteiro válido (NULL check).
+     * 2. Verifica se a nossa 'tabela' estática já atingiu a capacidade máxima. */
     if (esc == NULL || n_algoritmos >= MAX_ALGORITMOS)
         return;
     tabela[n_algoritmos] = *esc;
+    /* Incrementa o contador de algoritmos registados */
     n_algoritmos++;
 }
 
-/* Para listar os algoritmos disponíveis (mensagens de erro, interface). */
+/* Retorna a quantidade exata de algoritmos atualmente registados no sistema. */
 int escalonador_qtde(void) { return n_algoritmos; }
+//Retorna um algoritmo específico da tabela com base no seu índice (0 até n-1).
 const Escalonador *escalonador_em(int i) { return &tabela[i]; }
 
 /* Procura um algoritmo pelo nome, sem diferenciar maiúsculas: "rm" acha
@@ -87,6 +92,7 @@ static long prio_edf(const TCB *t, int tick)
 /* Registra RM e EDF. O main chama antes de qualquer outra coisa.
  * Campos: nome usado no arquivo de configuração, descrição, função.
  * Para incluir um algoritmo novo: mais uma struct e mais uma chamada aqui. */
+//Ou seja, uma listagem de algoritmos já incluídos.
 void escalonador_registrar_padroes(void)
 {
     Escalonador rm = {"RM", "Rate Monotonic", prio_rm};
@@ -176,7 +182,16 @@ static int empate_ate_sorteio(const Escalonador *esc, const TCB *a, const TCB *b
  * Se empatou em tudo (c igual a 0), quem decide é o sorteio. */
 static int comparar(const Escalonador *esc, const TCB *a, const TCB *b, int tick)
 {
+    /* Invoca a Árvore de Decisão em Cascata (Critérios 0 a 4). 
+     * Guarda o resultado matemático (-1, 1 ou 0) na variável local 'c'. */
     int c = comparar_sem_sorteio(esc, a, b, tick);
+    /** Lógica do Operador Ternário ( c ? c : sorteio(...) ):
+     * - Se 'c' for diferente de zero (-1 ou 1), a expressão avalia como TRUE. 
+     *   Devolve imediatamente 'c' e a função 'sorteio' NEM SEQUER É EXECUTADA 
+     *   (Short-Circuit Evaluation), poupando ciclos de CPU.
+     * - Se 'c' for exatamente 0 (Empate Perfeito), a expressão avalia como FALSE.
+     *   Devolve então o resultado da função 'sorteio', forçando o desempate
+     *   matemático pelo hash FNV-1a (Critério 5). */
     return c ? c : sorteio(tick, a->id, b->id);
 }
 
