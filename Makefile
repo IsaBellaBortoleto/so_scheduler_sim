@@ -105,7 +105,7 @@ $(BUILD_DIR)/%.o: %.c | $(BUILD_DIR)
 $(FERRAMENTA): ferramentas/gerar_recursos.c | $(BUILD_DIR)
 	$(CC) -std=c11 -Wall -Wextra -O2 -o $@ $<
 
-# Etapa 2. Depende da ferramenta E de cada arquivo da pagina: editar o app.js
+# Etapa 2. Depende da ferramenta E de cada arquivo da pagina: editar o index.html
 # regera o .h, que por sua vez recompila o servidor. Sem listar $(WEB_ARQUIVOS)
 # aqui, uma mudanca na pagina nunca chegaria ao executavel.
 $(RECURSOS_H): $(FERRAMENTA) $(WEB_ARQUIVOS)

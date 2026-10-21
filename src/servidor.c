@@ -249,8 +249,8 @@ static char json[262144];
  * do 'json' é um só, 'static' (tem uns 25 KB); atender() zera a cada pedido. */
 static Diagnostico diag;
 
-/* Arquivos da página (/, /app.js, /estilo.css). Eles estão DENTRO do
- * executável, na tabela RECURSOS_WEB de recursos_web.h. Procura o caminho
+/* A página: só "/", o index.html, com o estilo e o script dentro. Ela está
+ * DENTRO do executável, na tabela RECURSOS_WEB de recursos_web.h. Procura o caminho
  * pedido na tabela; devolve 1 se achou e respondeu, 0 se não é da página. */
 static int servir_recurso(soquete_t c, const Pedido *p)
 {
@@ -490,7 +490,7 @@ static void responder_svg(soquete_t c, const Simulacao *sim, int inteira)
 /* O ROTEADOR: lê um pedido e escolhe quem responde. Não faz o trabalho, só
  * decide; cada rota tem a sua função, logo acima.
  *
- *   GET  /, /app.js, /estilo.css   -> servir_recurso    (a página)
+ *   GET  /                        -> servir_recurso    (a página)
  *   GET  /api/estado               -> responder_estado  (o estado em JSON)
  *   POST /api/carregar             -> rota_carregar     (recebe o arquivo)
  *   POST /api/avancar              -> sim_avancar       (um tick)

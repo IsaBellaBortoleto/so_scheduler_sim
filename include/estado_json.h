@@ -7,8 +7,8 @@
 /* Serializa o estado do tick ATUAL (s->atual) para JSON: cabecalho, tabela
  * de CPUs, tabela de tarefas, ultimo evento e a lista "algoritmos" (os
  * escalonadores registrados, para o seletor da pagina; um algoritmo novo
- * aparece nela sozinho, req. 4.2). O formato esta documentado no topo de
- * web/app.js.
+ * aparece nela sozinho, req. 4.2). O formato esta documentado no topo do
+ * script de web/index.html.
  *
  * O Gantt NAO vai no JSON: ele vem pronto como SVG (ver gantt.h). Por isso a
  * pagina nao precisa mais do historico de ticks, e a antiga

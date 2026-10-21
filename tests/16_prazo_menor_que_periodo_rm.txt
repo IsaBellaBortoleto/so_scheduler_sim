@@ -1,0 +1,12 @@
+# TESTE: prazo MENOR que o periodo (Di < Pi), RM, 1 CPU, quantum 0.
+# T1: C=3, D=7, P=20 | T2: C=2, D=4, P=5 | T3: C=2, D=8, P=10.
+# Mesmos C e P do teste 12, mas sem a premissa (b) do livro (Di = Pi).
+# O RM so olha o periodo: T2 > T3 > T1. Ele ignora que o prazo do T1 (7)
+# e mais curto que o do T3 (8), roda o T3 antes e o T1 nao cabe.
+# ESPERADO: T2[0,2) T3[2,4) T1[4,5) T2[5,7) -> T1 PERDE o prazo no tick 7
+# (X no Gantt), continua e termina em t=9. Repete em t=27 e t=47.
+# Compare com 16_prazo_menor_que_periodo_edf.txt: o EDF nao perde nenhum.
+RM;0;1
+1;E63946;0;3;20;7
+2;2A9D8F;0;2;5;4
+3;F4A261;0;2;10;8

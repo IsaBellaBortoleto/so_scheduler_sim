@@ -8,9 +8,9 @@
  * pagina web. O servidor nao guarda estado proprio: cada requisicao le ou
  * comanda a MESMA struct Simulacao que o main.c mantem viva.
  *
- * ROTAS (o formato dos JSON esta no topo de web/app.js):
+ * ROTAS (o formato dos JSON esta no topo do script de web/index.html):
  *
- *   GET  /, /app.js, /estilo.css   pagina, servida de recursos_web.h
+ *   GET  /                        pagina, servida de recursos_web.h
  *   GET  /api/estado               estado atual em JSON (estado_json.h);
  *                                  a pagina chama ao abrir, entao fechar e
  *                                  reabrir o navegador nao perde nada

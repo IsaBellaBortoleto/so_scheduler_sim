@@ -87,6 +87,18 @@ ARQUIVOS QUE DEVEM CARREGAR
                             observado (19/10): termina no tick 7250, as 4
                             tarefas com as 10 execucoes, sem prazo perdido
 
+16_prazo_menor_que_periodo_rm.txt
+                            T1 C=3 D=7 P=20, T2 C=2 D=4 P=5, T3 C=2 D=8 P=10;
+                            RM, 1 CPU (prazo menor que o periodo)
+                            observado (20/10): T2[0,2) T3[2,4) T1[4,5)
+                            T2[5,7) T1[7,9); T1 perde o prazo em t=7, 27 e
+                            47; fim no tick 183
+
+16_prazo_menor_que_periodo_edf.txt
+                            mesmo conjunto, EDF
+                            observado (20/10): T2[0,2) T1[2,5) T3[5,7)
+                            T2[7,9); nenhum prazo perdido; fim no tick 183
+
 
 ARQUIVOS FEITOS PARA FALHAR (devem ser recusados com mensagem clara)
 --------------------------------------------------------------------

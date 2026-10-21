@@ -168,8 +168,8 @@ static void sai_tarefa(Saida *s, const TCB *t)
     sai(s, "}");
 }
 
-/* Monta o objeto "Estado" descrito no topo de web/app.js, a partir do tick
- * atual. Devolve quantos caracteres escreveu, ou -1 se não coube em buf.
+/* Monta o objeto "Estado" descrito no topo do script de web/index.html, a
+ * partir do tick atual. Devolve quantos caracteres escreveu, ou -1 se não coube em buf.
  *
  * Antes de carregar um arquivo a Simulacao está zerada (ver main.c): o
  * resultado é um Estado válido com "carregado":false e as listas vazias, sem

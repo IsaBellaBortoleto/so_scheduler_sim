@@ -1,0 +1,10 @@
+# TESTE: prazo MENOR que o periodo (Di < Pi), EDF, 1 CPU, quantum 0.
+# T1: C=3, D=7, P=20 | T2: C=2, D=4, P=5 | T3: C=2, D=8, P=10.
+# Mesmo conjunto de 16_prazo_menor_que_periodo_rm.txt, agora com EDF.
+# O EDF olha o prazo absoluto (chegada + Di): em t=2 o T1 (prazo 7) passa
+# na frente do T3 (prazo 8).
+# ESPERADO: T2[0,2) T1[2,5) T3[5,7) T2[7,9); nenhum prazo perdido.
+EDF;0;1
+1;E63946;0;3;20;7
+2;2A9D8F;0;2;5;4
+3;F4A261;0;2;10;8
