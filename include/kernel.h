@@ -33,12 +33,13 @@ int  sim_retroceder(Simulacao *s);
 
 void sim_executar_tudo(Simulacao *s);
 
-int  sim_editar_tarefa(Simulacao *s, int id_tarefa, const char *campo,
+/* id_tarefa e o id em TEXTO, como no arquivo (ex. "t06"). */
+int  sim_editar_tarefa(Simulacao *s, const char *id_tarefa, const char *campo,
                        const char *valor, char *motivo, int motivo_tam);
 
 void sim_liberar(Simulacao *s);
 
-int  sim_indice_por_id(const Estado *e, int id);
+int  sim_indice_por_id(const Estado *e, const char *id);
 /* Troca o algoritmo de escalonamento no meio da simulação (req. 3.1).
  * Vale a partir do próximo tick. Devolve 1 se trocou; 0 se recusou, com
  * o porquê em 'motivo'. */

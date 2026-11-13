@@ -90,7 +90,9 @@ static int marca_em(const Simulacao *s, int t, int i)
 }
 
 /* Ordem das linhas: índices das tarefas ordenados por id CRESCENTE.
- * linha 0 = menor id = mais próxima do eixo X (requisito 2.5). */
+ * linha 0 = menor id = mais próxima do eixo X (requisito 2.5).
+ * O id é texto, então "crescente" é a ordem NATURAL de id_comparar (tcb.h):
+ * t1, t2, ..., t9, t10. Com strcmp o t10 ficaria entre o t1 e o t2. */
 static void ordem_por_id(const Estado *e, int *ordem)
 {
     /* Insertion sort que já preenche: o índice i entra no fim e anda para
@@ -101,7 +103,7 @@ static void ordem_por_id(const Estado *e, int *ordem)
     for (int i = 0; i < e->ntarefas; i++)
     {
         int j = i;
-        while (j > 0 && e->tarefas[ordem[j - 1]].id > e->tarefas[i].id)
+        while (j > 0 && id_comparar(e->tarefas[ordem[j - 1]].id, e->tarefas[i].id) > 0)
         {
             ordem[j] = ordem[j - 1];
             j--;
@@ -116,7 +118,8 @@ static void ordem_por_id(const Estado *e, int *ordem)
 
 #define CEL_W  14   /* largura de 1 tick, em pixels                          */
 #define LIN_H  22   /* altura de uma linha do gráfico                        */
-#define MARG_E 90   /* margem esquerda, onde vão os rótulos das linhas       */
+#define MARG_E 120  /* margem esquerda, onde vão os rótulos das linhas: cabe
+                     * um id de 15 letras (MAX_ID - 1), alinhado à direita   */
 #define MARG_T 50   /* margem superior, para o título                        */
 #define LEG_W  110  /* largura de um item da legenda                         */
 
@@ -268,8 +271,14 @@ int gantt_svg(const Simulacao *s, FILE *saida, int tick_ini, int tick_fim)
     {
         int i = ordem[k];
         int y = MARG_T + (nc + nt - 1 - k) * LIN_H;
-        fprintf(saida, "<text x=\"%d\" y=\"%d\" text-anchor=\"end\">T%d</text>\n",
-                MARG_E - 8, y + LIN_H / 2 + 4, e->tarefas[i].id);
+        /* Rótulo da linha = o id como está no arquivo ("t06"). Se o id
+         * começa com número ("6", como nos arquivos do Projeto A), ganha um
+         * "T" na frente, para não parecer um valor do eixo. Não precisa de
+         * escape: o config.c só aceita letras, números, '_' e '-'. */
+        fprintf(saida, "<text x=\"%d\" y=\"%d\" text-anchor=\"end\">%s%s</text>\n",
+                MARG_E - 8, y + LIN_H / 2 + 4,
+                (e->tarefas[i].id[0] >= '0' && e->tarefas[i].id[0] <= '9') ? "T" : "",
+                e->tarefas[i].id);
         for (int t = tick_ini; t <= tick_fim; t++)
         {
             const Estado *h = &s->historico[t];

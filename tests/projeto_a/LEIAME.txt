@@ -106,10 +106,13 @@ ARQUIVOS FEITOS PARA FALHAR (devem ser recusados com mensagem clara)
 erro_01_vazio.txt                "arquivo vazio"
 erro_02_so_cabecalho.txt         "nenhuma tarefa periodica para simular"
 erro_03_algoritmo_inexistente.txt
-                                 'algoritmo "XYZ" nao existe (disponiveis: RM, EDF)'
+                                 'algoritmo "XYZ" nao existe (disponiveis: RM, EDF).
+                                 Para usa-lo, adicione-o em "novo algoritmo" e
+                                 carregue o arquivo de novo.'
+                                 (a lista cresce se o usuario ja criou algoritmos)
 erro_04_zero_cpus.txt            'linha 2: qtde_cpus invalido "0" ...'
 erro_05_campos_invalidos.txt     os 4 erros de uma vez, cada um com a linha
-erro_06_id_repetido.txt          "linha 4: id 1 repetido"
+erro_06_id_repetido.txt          'linha 4: id "1" repetido (ja usado por "1")'
 erro_07_so_aperiodicas.txt       erro + um aviso por tarefa ignorada
 erro_08_binario.txt              3000 bytes aleatorios (o "arquivo que nao e
                                  texto"): "o arquivo escolhido nao e um

@@ -1,0 +1,4 @@
+# ESPERADO: recusado. O algoritmo XYZ nao existe (de fabrica so RM e EDF) e a
+# mensagem orienta a cria-lo em "novo algoritmo".
+XYZ;2;2
+1;E63946;0;2;6;6

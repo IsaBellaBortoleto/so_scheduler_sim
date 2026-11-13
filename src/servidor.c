@@ -29,20 +29,20 @@
  * accept, recv, send). Mudam só três coisas, resolvidas aqui uma vez:
  * o cabeçalho, o tipo do socket e o nome da função que fecha. */
 #ifdef _WIN32
-#  include <winsock2.h>
-#  include <ws2tcpip.h>
+#include <winsock2.h>
+#include <ws2tcpip.h>
 typedef SOCKET soquete_t;
-#  define SOQUETE_INVALIDO INVALID_SOCKET
-#  define fechar_soquete(s) closesocket(s)
+#define SOQUETE_INVALIDO INVALID_SOCKET
+#define fechar_soquete(s) closesocket(s)
 #else
-#  include <arpa/inet.h>
-#  include <netinet/in.h>
-#  include <sys/socket.h>
-#  include <sys/time.h>   /* struct timeval, do tempo-limite de leitura */
-#  include <unistd.h>
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
+#include <sys/time.h> /* struct timeval, do tempo-limite de leitura */
+#include <unistd.h>
 typedef int soquete_t;
-#  define SOQUETE_INVALIDO (-1)
-#  define fechar_soquete(s) close(s)
+#define SOQUETE_INVALIDO (-1)
+#define fechar_soquete(s) close(s)
 #endif
 
 /* ------------------------------- o pedido -------------------------------- */
@@ -50,11 +50,12 @@ typedef int soquete_t;
 #define MAX_CAMINHO 256
 
 /* O que interessa de um pedido HTTP, já separado. */
-typedef struct {
-    char   metodo[8];             /* "GET" ou "POST"                          */
-    char   caminho[MAX_CAMINHO];  /* ex. "/" ou "/api/carregar"               */
-    char  *corpo;                 /* dados do POST (malloc), com '\0' no fim  */
-    size_t tam_corpo;   /* quantos bytes chegaram; o corpo pode ter '\0' no meio */
+typedef struct
+{
+    char metodo[8];            /* "GET" ou "POST"                          */
+    char caminho[MAX_CAMINHO]; /* ex. "/" ou "/api/carregar"               */
+    char *corpo;               /* dados do POST (malloc), com '\0' no fim  */
+    size_t tam_corpo;          /* quantos bytes chegaram; o corpo pode ter '\0' no meio */
 } Pedido;
 
 /* ------------------------------ etapa 1: porta ---------------------------- */
@@ -114,12 +115,12 @@ static soquete_t abrir_porta(int porta)
  *   B) separa método e caminho         D) lê o corpo */
 static int ler_pedido(soquete_t c, Pedido *p)
 {
-    char cab[8192]; /* o cabeçalho; 8 KB sobra para o que o navegador manda */
+    char cab[8192];   /* o cabeçalho; 8 KB sobra para o que o navegador manda */
     char *fim = NULL; /* onde o cabeçalho termina e o corpo começa          */
     char *q;          /* posição do '?' no caminho                          */
     const char *cl;   /* posição do cabeçalho Content-Length                */
     int content_length;
-    int n = 0;        /* quantos bytes já estão em 'cab'                    */
+    int n = 0; /* quantos bytes já estão em 'cab'                    */
 
     /* FASE A: ler até a linha em branco. O recv entrega os bytes em pedaços,
      * sem garantia de vir tudo de uma vez; por isso o laço, que vai juntando
@@ -135,17 +136,17 @@ static int ler_pedido(soquete_t c, Pedido *p)
             break; /* achou o fim do cabeçalho */
     }
     if (fim == NULL)
-        return 0; /* cabeçalho muito grande ou mal formado */   
-    fim += 4; /* pula os 4 caracteres de "\r\n\r\n": aqui começa o corpo */
+        return 0; /* cabeçalho muito grande ou mal formado */
+    fim += 4;     /* pula os 4 caracteres de "\r\n\r\n": aqui começa o corpo */
 
     /* FASE B: as duas primeiras palavras são o método e o caminho. Os limites
      * 7 e 255 são o tamanho dos campos menos 1, para o sscanf não escrever
      * fora deles. */
-    if(sscanf(cab, "%7s %255s", p->metodo, p->caminho) != 2)
+    if (sscanf(cab, "%7s %255s", p->metodo, p->caminho) != 2)
         return 0; /* pedido mal formado */
-    q=strchr(p->caminho, '?');
-    if(q != NULL)
-        *q='\0'; /* corta no '?': "/api/gantt?v=3" vira "/api/gantt" */
+    q = strchr(p->caminho, '?');
+    if (q != NULL)
+        *q = '\0'; /* corta no '?': "/api/gantt?v=3" vira "/api/gantt" */
 
     /* FASES C e D: o corpo. O cabeçalho Content-Length diz quantos bytes são;
      * sem ele (o GET não manda), o tamanho é 0 e p->corpo fica NULL
@@ -156,7 +157,7 @@ static int ler_pedido(soquete_t c, Pedido *p)
     content_length = cl ? atoi(cl + 15) : 0;
     /* Teto de 1 MB: o número vem de fora e vai para o malloc. O
      * arquivo de configuração tem poucos KB. */
-    if (content_length > 1024*1024)
+    if (content_length > 1024 * 1024)
         return 0;
     if (content_length > 0)
     {
@@ -165,14 +166,14 @@ static int ler_pedido(soquete_t c, Pedido *p)
          * bytes do corpo já chegaram. Eles são copiados, e só o que
          * FALTA é pedido ao socket. Pedir tudo de novo travaria o
          * servidor, esperando bytes que já foram lidos. */
-        int ja=n-(int)(fim-cab);
+        int ja = n - (int)(fim - cab);
         int total_lidos;
-        if(ja > content_length)
-            ja=content_length;
+        if (ja > content_length)
+            ja = content_length;
 
         p->corpo = malloc(content_length + 1); /* + 1 para o '\0' */
         if (p->corpo == NULL)
-            return 0; /* falha de memória */
+            return 0;              /* falha de memória */
         memcpy(p->corpo, fim, ja); /* a parte que veio com o cabeçalho */
         total_lidos = ja;
         while (total_lidos < content_length)
@@ -218,13 +219,13 @@ static void responder(soquete_t c, const char *status, const char *tipo,
 {
     char cab[512];
     int n = snprintf(cab, sizeof cab,
-             "HTTP/1.1 %s\r\n"
-             "Content-Type: %s\r\n"
-             "Content-Length: %lu\r\n"
-             "%s"
-             "Connection: close\r\n"
-             "\r\n",
-             status, tipo, (unsigned long)tam, extra);
+                     "HTTP/1.1 %s\r\n"
+                     "Content-Type: %s\r\n"
+                     "Content-Length: %lu\r\n"
+                     "%s"
+                     "Connection: close\r\n"
+                     "\r\n",
+                     status, tipo, (unsigned long)tam, extra);
 
     enviar_tudo(c, cab, (size_t)n); /* cabeçalho primeiro */
     if (tam > 0)
@@ -350,20 +351,23 @@ static void rota_carregar(Simulacao *sim, soquete_t c, const Pedido *p)
  * formato de erro do carregamento: {"erro":true,"erros":["motivo"],...}. */
 static void rota_editar(Simulacao *sim, soquete_t c, const Pedido *p)
 {
-    int id;
+    char id[MAX_ID]; /* id da tarefa em texto; o 15 do sscanf é MAX_ID - 1 */
     char campo[32], valor[64];
-    char motivo[MAX_DIAG_TXT];  /* sim_editar_tarefa escreve aqui o porquê */
+    char motivo[MAX_DIAG_TXT]; /* sim_editar_tarefa escreve aqui o porquê */
 
-    /* O corpo chega como {"id":3,"campo":"estado","valor":"pronta"}.
-     * %31[^"] lê tudo até a próxima aspa, no máximo 31 caracteres (o
-     * tamanho do vetor menos 1). O sscanf devolve quantos campos leu: menos
-     * de 3 é pedido quebrado.
+    /* O corpo chega como {"id":"t06","campo":"estado","valor":"pronta"}.
+     * O id é TEXTO, entre aspas, como os outros dois campos.
+     * %15[^"] lê tudo até a próxima aspa, no máximo 15 caracteres (o
+     * tamanho do vetor, MAX_ID, menos 1); %31 e %63 seguem a mesma regra.
+     * O sscanf devolve quantos campos leu: menos de 3 é pedido quebrado.
+     * Um id nunca tem aspas (config.c só aceita letras, números, '_' e
+     * '-'), então parar na aspa é seguro.
      * só lê o JSON exatamente nesta ordem e sem espaços, que é o
      * que o JSON.stringify da página gera. Outro cliente precisaria de um
      * leitor de JSON de verdade. */
     if (p->corpo == NULL ||
-        sscanf(p->corpo, "{\"id\":%d,\"campo\":\"%31[^\"]\",\"valor\":\"%63[^\"]\"}",
-               &id, campo, valor) != 3)
+        sscanf(p->corpo, "{\"id\":\"%15[^\"]\",\"campo\":\"%31[^\"]\",\"valor\":\"%63[^\"]\"}",
+               id, campo, valor) != 3)
     {
         diag_erro(&diag, "pedido de edicao mal formado");
     }
@@ -396,7 +400,29 @@ static void rota_algoritmo(Simulacao *sim, soquete_t c, const Pedido *p)
         return;
     }
     else
-        diag_erro(&diag, "%s", motivo);   /* "%s": o motivo traz texto do usuário */
+        diag_erro(&diag, "%s", motivo); /* "%s": o motivo traz texto do usuário */
+    responder_erros(c, &diag);
+}
+
+/* POST /api/algoritmo_novo (req. 4.2): cria um algoritmo sem recompilar.
+ * O corpo é a definição em texto (nome;descricao;preemptivo e uma linha
+ * campo;sentido por critério) -- o conteúdo de um .txt escolhido na página
+ * ou o texto montado pelo formulário. Quem valida é o escalonador.c.
+ * Aceito, devolve o estado: a lista "algoritmos" já traz o novo, e a página
+ * refaz o seletor. Não mexe na simulação em andamento. */
+static void rota_algoritmo_novo(Simulacao *sim, soquete_t c, const Pedido *p)
+{
+    char motivo[MAX_DIAG_TXT];
+
+    if (p->corpo == NULL)
+        diag_erro(&diag, "nenhuma definicao de algoritmo enviada");
+    else if (escalonador_carregar_texto(p->corpo, motivo, sizeof motivo))
+    {
+        responder_estado(sim, c, NULL);
+        return;
+    }
+    else
+        diag_erro(&diag, "%s", motivo); /* "%s": o motivo traz texto do usuário */
     responder_erros(c, &diag);
 }
 
@@ -528,30 +554,37 @@ static void atender(Simulacao *sim, soquete_t c)
     else if (get && strcmp(p.caminho, "/api/estado") == 0)
     {
         responder_estado(sim, c, NULL);
-    }else if (post && strcmp(p.caminho, "/api/carregar") == 0)
+    }
+    else if (post && strcmp(p.caminho, "/api/carregar") == 0)
     {
         rota_carregar(sim, c, &p);
-    }else if (post && strcmp(p.caminho, "/api/avancar") == 0)
+    }
+    else if (post && strcmp(p.caminho, "/api/avancar") == 0)
     {
-        sim_avancar(sim); // Executa um tick do relógio
+        sim_avancar(sim);               // Executa um tick do relógio
         responder_estado(sim, c, NULL); // Devolve o estado atualizado para a interface
     }
     else if (post && strcmp(p.caminho, "/api/retroceder") == 0)
     {
-        sim_retroceder(sim); // Volta no tempo
+        sim_retroceder(sim);            // Volta no tempo
         responder_estado(sim, c, NULL); // Devolve o estado atualizado para a interface
     }
     else if (post && strcmp(p.caminho, "/api/executar_tudo") == 0)
     {
-        sim_executar_tudo(sim); // Roda a simulação inteira de uma vez
+        sim_executar_tudo(sim);         // Roda a simulação inteira de uma vez
         responder_estado(sim, c, NULL); // Devolve o resultado final para a interface
-    }else if (post && strcmp(p.caminho,"/api/editar") == 0)
+    }
+    else if (post && strcmp(p.caminho, "/api/editar") == 0)
     {
         rota_editar(sim, c, &p);
     }
     else if (post && strcmp(p.caminho, "/api/algoritmo") == 0)
     {
         rota_algoritmo(sim, c, &p);
+    }
+    else if (post && strcmp(p.caminho, "/api/algoritmo_novo") == 0)
+    {
+        rota_algoritmo_novo(sim, c, &p);
     }
     else if (get && strcmp(p.caminho, "/api/gantt") == 0)
     {
@@ -565,7 +598,6 @@ static void atender(Simulacao *sim, soquete_t c)
     {
         responder_texto(c, "404 Not Found", "rota inexistente");
     }
-        
 
     free(p.corpo); /* um só free, no fim: vale para todas as rotas */
 }
@@ -588,7 +620,7 @@ static void limitar_espera(soquete_t c)
     DWORD ms = 500; /* no Windows o valor é em milissegundos */
     setsockopt(c, SOL_SOCKET, SO_RCVTIMEO, (const char *)&ms, sizeof ms);
 #else
-    struct timeval tv = { 0, 500000 }; /* no Linux/Mac: segundos e microssegundos */
+    struct timeval tv = {0, 500000}; /* no Linux/Mac: segundos e microssegundos */
     setsockopt(c, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof tv);
 #endif
 }

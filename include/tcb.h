@@ -16,6 +16,11 @@
 /* Tamanho do texto da lista de eventos (usada só no Projeto B). */
 #define MAX_EVENTOS_TXT 256
 
+/* Tamanho do id de uma tarefa: 15 letras + o '\0' do fim. O id é TEXTO
+ * (ex. "t06"), e não número: é o que o professor pediu na defesa do A, e o
+ * Projeto B identifica os servidores pelo id (BSxx, PSxx, DSxx, SSxx). */
+#define MAX_ID 16
+
 /* Os cinco estados de uma tarefa (ciclo de vida, Maziero 4.4). */
 typedef enum {
     EST_INATIVA = 0, /* esperando a próxima chegada (ou antes do ingresso) */
@@ -29,13 +34,24 @@ typedef enum {
 const char *estado_nome(EstadoTarefa e);
 
 
+/* Compara dois ids em ordem NATURAL: os trechos de números valem como
+ * números, então "t2" vem antes de "t10" (com strcmp, "t10" viria antes,
+ * porque '1' < '2'). Ignora maiúsculas/minúsculas (req. 3.3.2).
+ * Devolve <0, 0 ou >0, como o strcmp.
+ * Usada onde a ORDEM importa: eixo Y do Gantt (req. 2.5) e sorteio.
+ * Para saber se dois ids são O MESMO, use str_igual_ci (config.h). */
+int id_comparar(const char *a, const char *b);
+
 /* TCB — Task Control Block: UMA struct com tudo sobre a tarefa, antes,
  * durante e depois da simulação (req. 1.3). Não há campo de prioridade: ela
  * é calculada pelo algoritmo a cada tick (escalonador.c). */
 typedef struct {
     /* ---- vem do arquivo de configuração (não muda na simulação, exceto
      *      duracao e prazo, que a edição manual pode alterar) ---- */
-    int  id;                         /* identificador, como no arquivo      */
+    char id[MAX_ID];                 /* identificador em TEXTO, como no
+                                      * arquivo (ex. "t06"); guardado como
+                                      * foi escrito, comparado sem
+                                      * diferenciar maiúsculas              */
     unsigned char r, g, b;           /* cor no Gantt (RRGGBB)               */
     int  ingresso;                   /* tick em que entra no sistema        */
     int  duracao;                    /* Ci: ticks de CPU por execução       */
@@ -70,7 +86,8 @@ typedef struct {
  * vetores são alocados; por isso copiar exige estado_clonar (cópia
  * profunda), e não '='. */
 typedef struct {
-    char algoritmo[16];   /* "RM" ou "EDF"; vai junto em cada foto, para a
+    char algoritmo[16];   /* nome do algoritmo ("RM", "EDF" ou um criado
+                           * pelo usuário, até 15 letras); vai junto em cada foto, para a
                            * troca de algoritmo ser desfeita ao retroceder  */
     int  quantum;         /* 0 = sem limite                                  */
     int  ncpus;

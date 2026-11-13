@@ -440,8 +440,42 @@ int config_carregar_texto(const char *conteudo, Estado *e, Diagnostico *d)
             continue;
         }
 
-        t.id = campo_int_min(d, num, "id", campos[0],
-                             -1, 0, &ok);
+        /* ID da tarefa: TEXTO (ex. "t06"), e não número. Três recusas, cada
+         * uma com a linha e o motivo (req. 3.3.6):
+         *   - vazio;
+         *   - maior que o campo do TCB (MAX_ID - 1 letras): cortar em
+         *     silêncio poderia transformar dois ids diferentes no mesmo;
+         *   - com caractere fora de letras, números, '_' e '-'. Com esse
+         *     alfabeto o id nunca precisa de escape: vai direto para o
+         *     JSON, para o SVG do Gantt e para o pedido de edição.
+         * strspn devolve quantos caracteres do COMEÇO de txt pertencem à
+         * lista: se for o texto inteiro (n), todos são permitidos.
+         * O id é guardado como foi escrito; maiúsculas só são ignoradas
+         * nas comparações (req. 3.3.2). */
+        {
+            const char *txt = campos[0];
+            size_t n = strlen(txt);
+            if (n == 0)
+            {
+                diag_erro(d, "linha %d: id vazio", num);
+                ok = 0;
+            }
+            else if (n >= sizeof t.id)
+            {
+                diag_erro(d, "linha %d: id \"%s\" passa de %d caracteres",
+                          num, txt, MAX_ID - 1);
+                ok = 0;
+            }
+            else if (strspn(txt, "abcdefghijklmnopqrstuvwxyz"
+                                 "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-") != n)
+            {
+                diag_erro(d, "linha %d: id \"%s\" so pode ter letras, numeros, '_' e '-'",
+                          num, txt);
+                ok = 0;
+            }
+            else
+                strcpy(t.id, txt); /* cabe: n < sizeof t.id foi conferido acima */
+        }
 
         if (!campo_cor(campos[1], &t))
         {
@@ -503,12 +537,14 @@ int config_carregar_texto(const char *conteudo, Estado *e, Diagnostico *d)
             snprintf(t.eventos, sizeof t.eventos, "%s", campos[6]);
         }
 
-        /* id duplicado invalida a tarefa (mas nao aborta o parse das demais) */
+        /* id duplicado invalida a tarefa (mas nao aborta o parse das demais).
+         * str_igual_ci: "T06" e "t06" sao O MESMO id (req. 3.3.2). */
         for (i = 0; ok && i < e->ntarefas; i++)
         {
-            if (e->tarefas[i].id == t.id)
+            if (str_igual_ci(e->tarefas[i].id, t.id))
             {
-                diag_erro(d, "linha %d: id %d repetido", num, t.id);
+                diag_erro(d, "linha %d: id \"%s\" repetido (ja usado por \"%s\")",
+                          num, t.id, e->tarefas[i].id);
                 ok = 0;
             }
         }

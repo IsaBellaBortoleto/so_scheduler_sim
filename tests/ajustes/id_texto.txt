@@ -1,0 +1,12 @@
+# TESTE (ajuste 2): id da tarefa em TEXTO, como "t06".
+# As linhas estao fora de ordem de proposito.
+# ESPERADO: carrega sem erro. No eixo Y do Gantt, de baixo para cima:
+#   7, BS_01, t1, t2, t10   (ordem natural: t2 vem ANTES de t10)
+# O id "7" (so numero, como nos arquivos do Projeto A) aparece como "T7".
+# Na edicao, "T10" e "t10" sao a mesma tarefa.
+RM;0;2
+t10;E63946;0;1;6;6
+t2;457B9D;0;1;4;4
+BS_01;2A9D8F;0;1;8;8
+t1;F4A261;0;2;10;10
+7;9B5DE5;0;1;12;12

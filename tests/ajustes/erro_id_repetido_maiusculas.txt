@@ -1,0 +1,5 @@
+# ESPERADO: recusado. "T06" e "t06" sao o mesmo id (req. 3.3.2):
+#   linha 5: id "T06" repetido (ja usado por "t06")
+RM;0;1
+t06;E63946;0;1;4;4
+T06;457B9D;0;1;5;5

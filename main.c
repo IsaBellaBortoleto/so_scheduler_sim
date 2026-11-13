@@ -55,7 +55,10 @@ static long prio_teste(const TCB *t, int tick)
 static void teste_escalonador(void)
 {
     const Escalonador *achado;
-    Escalonador novo = { "TESTE", "algoritmo inventado para o autoteste", prio_teste };
+    /* Algoritmo escrito em C (campo opcional 'prioridade'): sem criterios. */
+    Escalonador novo = { .nome = "TESTE",
+                         .descricao = "algoritmo inventado para o autoteste",
+                         .preemptivo = 1, .prioridade = prio_teste };
 
     /* Comparacao sem diferenciar maiusculas (requisito 3.3.2). O caso
      * "RM" x "RMS" e o que pega uma comparacao que para na string mais curta. */
@@ -72,35 +75,84 @@ static void teste_escalonador(void)
     assert(escalonador_buscar("RMS") == NULL);   /* nome parecido nao serve */
     assert(escalonador_buscar(NULL) == NULL);
 
-    /* Rate Monotonic: periodo MENOR tem que dar prioridade MAIOR (a
-     * convencao do projeto e "valor maior ganha"), e a prioridade e FIXA:
-     * nao pode depender do tick. */
+    /* RM e EDF sao DADOS (uma lista de criterios), registrados pelo mesmo
+     * texto que o usuario usa: nao ha funcao em C por tras deles, e os dois
+     * sao preemptivos (requisito 4). */
     {
-        const Escalonador *rm = escalonador_buscar("RM");
-        TCB rapida = {0}, lenta = {0};
-        rapida.periodo = 6;
-        lenta.periodo  = 9;
-        assert(rm->prioridade(&rapida, 0) > rm->prioridade(&lenta, 0));
-        assert(rm->prioridade(&rapida, 0) == rm->prioridade(&rapida, 999));
+        const Escalonador *rm  = escalonador_buscar("RM");
+        const Escalonador *edf = escalonador_buscar("EDF");
+        assert(rm->prioridade  == NULL && rm->n_criterios  == 1 && rm->preemptivo  == 1);
+        assert(edf->prioridade == NULL && edf->n_criterios == 1 && edf->preemptivo == 1);
     }
 
-    /* Earliest Deadline First: deadline absoluto MAIS CEDO tem que dar
-     * prioridade MAIOR. A prioridade e DINAMICA, mas quem a faz mudar e o
-     * campo deadline_abs (reescrito pela ativar() do kernel a cada periodo),
-     * e nao o tick: com o mesmo deadline, o valor e igual em qualquer tick. */
+    /* EDF e um algoritmo CRIADO PELO USUARIO (escalonador_carregar_texto):
+     * o que e recusado, o que e aceito, e a flag preemptivo. */
     {
         const Escalonador *edf = escalonador_buscar("EDF");
-        TCB cedo = {0}, tarde = {0};
-        long antes;
-        cedo.deadline_abs  = 15;
-        tarde.deadline_abs = 20;
-        assert(edf->prioridade(&cedo, 0) > edf->prioridade(&tarde, 0));
-        assert(edf->prioridade(&cedo, 0) == edf->prioridade(&cedo, 999));
+        const Escalonador *fila;
+        char motivo[160];
+        TCB t[2];
+        Estado e;
+        int ind[2], ok, antes = escalonador_qtde();
 
-        antes = edf->prioridade(&cedo, 0);
-        cedo.deadline_abs = 30;                    /* nova ativacao: prazo novo */
-        assert(edf->prioridade(&cedo, 0) < antes); /* ficou menos urgente      */
-        assert(edf->prioridade(&tarde, 0) > edf->prioridade(&cedo, 0));  /* a ordem virou */
+        memset(t, 0, sizeof t);
+        memset(&e, 0, sizeof e);
+        e.tarefas = t; e.ntarefas = 2; e.ncpus = 1;
+        strcpy(t[0].id, "1"); strcpy(t[1].id, "2");
+
+        /* EDF: deadline absoluto MAIS CEDO vem na frente. A prioridade e
+         * dinamica: quando o deadline muda (nova ativacao), a ordem vira. */
+        t[0].deadline_abs = 20; t[1].deadline_abs = 15;
+        ind[0] = 0; ind[1] = 1;
+        escalonador_ordenar(edf, &e, ind, 2);
+        assert(ind[0] == 1);
+        t[1].deadline_abs = 30;
+        ind[0] = 0; ind[1] = 1;
+        escalonador_ordenar(edf, &e, ind, 2);
+        assert(ind[0] == 0);
+
+        /* Definicoes recusadas: cada uma com o seu motivo, e NADA entra na
+         * tabela. */
+        assert(!escalonador_carregar_texto("", motivo, sizeof motivo));
+        assert(!escalonador_carregar_texto("rm;nome repetido;sim\nperiodo;menor", motivo, sizeof motivo));
+        assert(!escalonador_carregar_texto("X;sem criterio;sim", motivo, sizeof motivo));
+        assert(!escalonador_carregar_texto("X;campo que nao existe;sim\ncor;menor", motivo, sizeof motivo));
+        assert(strstr(motivo, "cor") != NULL);
+        assert(!escalonador_carregar_texto("X;sentido errado;sim\nperiodo;medio", motivo, sizeof motivo));
+        assert(!escalonador_carregar_texto("X;faltou o preemptivo\nperiodo;menor", motivo, sizeof motivo));
+        assert(!escalonador_carregar_texto("NOME_COM_MAIS_DE_15;x;sim\nperiodo;menor", motivo, sizeof motivo));
+        assert(escalonador_qtde() == antes);
+
+        /* Definicao aceita, com tudo o que o formato tolera: comentario,
+         * linha em branco, minusculas, espacos, ';' no fim e \r\n do Windows.
+         * A chamada fica fora do assert (ver -DNDEBUG mais abaixo). */
+        ok = escalonador_carregar_texto("# fila simples\r\n\r\n"
+                                        "fila ; First In First Out ; NAO ;\r\n"
+                                        "Ativacao;Menor;\r\n", motivo, sizeof motivo);
+        assert(ok);
+        fila = escalonador_buscar("FILA");
+        assert(fila != NULL && strcmp(fila->nome, "FILA") == 0);
+        assert(fila->preemptivo == 0 && fila->n_criterios == 1);
+
+        /* O criterio vale: quem foi ativada antes vem na frente. */
+        t[0].ativacao = 5; t[1].ativacao = 3;
+        ind[0] = 0; ind[1] = 1;
+        escalonador_ordenar(fila, &e, ind, 2);
+        assert(ind[0] == 1);
+
+        /* NAO preemptivo: a tarefa que ja esta na CPU fica, mesmo perdendo
+         * no criterio do algoritmo. */
+        t[0].estado = EST_EXECUTANDO;
+        ind[0] = 0; ind[1] = 1;
+        escalonador_ordenar(fila, &e, ind, 2);
+        assert(ind[0] == 0);
+
+        /* Preemptivo (EDF), mesma situacao: quem tem o deadline mais cedo
+         * passa na frente de quem esta executando. */
+        t[1].deadline_abs = 10;
+        ind[0] = 0; ind[1] = 1;
+        escalonador_ordenar(edf, &e, ind, 2);
+        assert(ind[0] == 1);
     }
 
     /* Ordenacao e criterios de desempate (requisito 4.3). 'ind' guarda
@@ -114,8 +166,15 @@ static void teste_escalonador(void)
 
         memset(t, 0, sizeof t);
         memset(&e, 0, sizeof e);
-        e.tarefas = t; e.ntarefas = 3; e.ncpus = 1;
-        t[0].id = 1; t[1].id = 2; t[2].id = 3;
+        e.tarefas = t;
+        e.ntarefas = 3;
+        e.ncpus = 1;
+        /* Ids em texto; sem eles as tres tarefas teriam o MESMO id ("") e
+         * o sorteio nao teria como escolher. */
+        strcpy(t[0].id, "1"); strcpy(t[1].id, "2"); strcpy(t[2].id, "3");
+        assert(id_comparar("t2", "t10") < 0);
+        assert(id_comparar("T06", "t06") != 0 && str_igual_ci("T06", "t06"));
+        assert(id_comparar("a", "b") < 0);
 
         /* Sem empate: periodos 12, 6 e 9 -> posicoes na ordem 1, 2, 0. */
         t[0].periodo = 12; t[1].periodo = 6; t[2].periodo = 9;
@@ -221,7 +280,7 @@ static void teste_escalonador(void)
 
     /* A tabela guarda uma COPIA da struct: estragar o original depois de
      * registrar nao pode afetar o que esta registrado. */
-    novo.nome = "ESTRAGADO";
+    strcpy(novo.nome, "ESTRAGADO");
     assert(escalonador_buscar("ESTRAGADO") == NULL);
     assert(escalonador_buscar("teste") != NULL);
 
@@ -255,8 +314,8 @@ static void teste_config(void)
     assert(strcmp(e.algoritmo, "EDF") == 0);
     assert(e.quantum == 3 && e.ncpus == 2 && e.tick == 0);
     assert(e.ntarefas == 2);
-    assert(e.tarefas[0].id == 1 && e.tarefas[0].r == 0xFF && e.tarefas[0].prazo == 8);
-    assert(e.tarefas[1].id == 2 && e.tarefas[1].r == PADRAO_COR_R);
+    assert(strcmp(e.tarefas[0].id, "1") == 0 && e.tarefas[0].r == 0xFF && e.tarefas[0].prazo == 8);
+    assert(strcmp(e.tarefas[1].id, "2") == 0 && e.tarefas[1].r == PADRAO_COR_R);
     assert(e.tarefas[1].ingresso == 1 && e.tarefas[1].duracao == 2);
     assert(e.tarefas[1].prazo == 5);                    /* vazio = periodo */
     assert(e.tarefas[0].cpu == -1 && e.tarefas[0].estado == EST_INATIVA);
@@ -324,8 +383,38 @@ static void teste_config(void)
         pos += snprintf(grande + pos, sizeof grande - (size_t)pos, "%d;A0B0C0;0;1;%d;%d;\n", i, i + 5, i + 5);
     memset(&d, 0, sizeof d);
     assert(config_carregar_texto(grande, &e, &d) == 1);
-    assert(e.ntarefas == 190 && e.tarefas[189].id == 190 && e.tarefas[189].periodo == 195);
+    assert(e.ntarefas == 190 && strcmp(e.tarefas[189].id, "190") == 0 && e.tarefas[189].periodo == 195);
     estado_liberar(&e);
+
+    /* ID EM TEXTO (ajuste da defesa A). Ordem natural: os trechos de numero
+     * valem como numero, e maiusculas nao contam. */
+    assert(id_comparar("t2", "t10") < 0);     /* com strcmp daria > 0 */
+    assert(id_comparar("t10", "t2") > 0);
+    assert(id_comparar("2", "10") < 0);       /* ids so de numeros (Projeto A) */
+    assert(id_comparar("a", "B") < 0);        /* sem diferenciar maiusculas */
+    assert(id_comparar("t1", "t1x") < 0);     /* o mais curto vem antes */
+    assert(id_comparar("t06", "t06") == 0);
+
+    /* O id entra como foi escrito, com letras, numeros, '_' e '-'. */
+    memset(&d, 0, sizeof d);
+    assert(config_carregar_texto("RM;0;1\nt06;;0;1;4\nBS_01;;0;1;5\n7;;0;1;6", &e, &d) == 1);
+    assert(e.ntarefas == 3 && strcmp(e.tarefas[0].id, "t06") == 0);
+    assert(strcmp(e.tarefas[1].id, "BS_01") == 0 && strcmp(e.tarefas[2].id, "7") == 0);
+    estado_liberar(&e);
+
+    /* "T06" e "t06" sao o MESMO id (3.3.2): a segunda linha e recusada. */
+    memset(&d, 0, sizeof d);
+    assert(config_carregar_texto("RM;0;1\nt06;;0;1;4\nT06;;0;1;4", &e, &d) == 0);
+    assert(d.n_erros == 1 && strstr(d.erros[0], "repetido") != NULL);
+
+    /* Ids recusados, cada um com o seu motivo: vazio, caractere proibido
+     * (espaco no meio) e maior que 15 letras. */
+    memset(&d, 0, sizeof d);
+    assert(config_carregar_texto("RM;0;1\n;;0;1;4\nt 1;;0;1;4\n"
+                                 "abcdefghijklmnop;;0;1;4", &e, &d) == 0);
+    assert(d.n_erros == 3);
+    assert(strstr(d.erros[0], "vazio") && strstr(d.erros[1], "letras") &&
+           strstr(d.erros[2], "15"));
 
     printf("autoteste: arquivo de configuracao ... ok\n");
 }
@@ -374,7 +463,7 @@ static void teste_sim_iniciar(void)
     assert(s.esc == escalonador_buscar("EDF") && s.n_hist == 1 && s.atual.ntarefas == 2);
 
     estado_liberar(&e);
-    assert(s.atual.ntarefas == 2 && s.atual.tarefas[1].id == 2);
+    assert(s.atual.ntarefas == 2 && strcmp(s.atual.tarefas[1].id, "2") == 0);
 
     /* sim_liberar deixa a Simulacao zerada ("nada carregado") e pode ser
      * chamada duas vezes sem quebrar. */
@@ -512,7 +601,7 @@ static void teste_prazos(void)
     iniciar_de_texto(&s, "RM;0;1\n1;;0;2;5");
     {
         char m[256];
-        assert(sim_editar_tarefa(&s, 1, "estado", "suspensa", m, sizeof m));
+        assert(sim_editar_tarefa(&s, "1", "estado", "suspensa", m, sizeof m));
     }
     sim_executar_tudo(&s);
     assert(s.terminada == 1 && s.atual.tick == s.limite_ticks);
@@ -568,20 +657,20 @@ static void teste_editar(void)
 
     /* Tarefa 1 ativa no tick 0; tarefa 2 so ingressa no 3 (INATIVA). */
     iniciar_de_texto(&s, "RM;0;1\n1;;0;2;6\n2;;3;1;8");
-    assert(!sim_editar_tarefa(&s, 1, "prazo", "abc", m, sizeof m));
-    assert(!sim_editar_tarefa(&s, 1, "prazo", "99999999999", m, sizeof m));
+    assert(!sim_editar_tarefa(&s, "1", "prazo", "abc", m, sizeof m));
+    assert(!sim_editar_tarefa(&s, "1", "prazo", "99999999999", m, sizeof m));
     assert(strstr(m, "inteiro valido"));
-    assert(!sim_editar_tarefa(&s, 1, "prazo", "-1", m, sizeof m));
-    assert(!sim_editar_tarefa(&s, 1, "cor", "1", m, sizeof m) && strstr(m, "Campo"));
-    assert(!sim_editar_tarefa(&s, 1, "estado", "executando", m, sizeof m));
-    assert(!sim_editar_tarefa(&s, 1, "estado", "xyz", m, sizeof m));
-    assert(!sim_editar_tarefa(&s, 2, "exec_restante", "1", m, sizeof m));
+    assert(!sim_editar_tarefa(&s, "1", "prazo", "-1", m, sizeof m));
+    assert(!sim_editar_tarefa(&s, "1", "cor", "1", m, sizeof m) && strstr(m, "Campo"));
+    assert(!sim_editar_tarefa(&s, "1", "estado", "executando", m, sizeof m));
+    assert(!sim_editar_tarefa(&s, "1", "estado", "xyz", m, sizeof m));
+    assert(!sim_editar_tarefa(&s, "2", "exec_restante", "1", m, sizeof m));
 
     /* Nome do estado em minusculas vale; INATIVA -> PRONTA e chegada antecipada. */
-    assert(sim_editar_tarefa(&s, 2, "estado", "pronta", m, sizeof m));
+    assert(sim_editar_tarefa(&s, "2", "estado", "pronta", m, sizeof m));
     assert(s.atual.tarefas[1].estado == EST_PRONTA);
     assert(s.atual.tarefas[1].exec_restante == 1);
-    assert(sim_editar_tarefa(&s, 1, "prazo", "7", m, sizeof m));
+    assert(sim_editar_tarefa(&s, "1", "prazo", "7", m, sizeof m));
     assert(s.atual.tarefas[0].prazo == 7);
 
     /* Troca de algoritmo (req. 3.1): nome oficial, recusa com a lista. */
@@ -600,9 +689,9 @@ static void teste_editar(void)
      * chegada; a execucao em andamento nao muda. */
     iniciar_de_texto(&s, "RM;0;1\n1;;0;3;10;10");
     assert(s.atual.tarefas[0].exec_restante == 3);
-    assert(!sim_editar_tarefa(&s, 1, "duracao", "0", m, sizeof m));   /* < 1 */
-    assert(!sim_editar_tarefa(&s, 1, "duracao", "abc", m, sizeof m)); /* texto */
-    assert(sim_editar_tarefa(&s, 1, "duracao", "5", m, sizeof m));
+    assert(!sim_editar_tarefa(&s, "1", "duracao", "0", m, sizeof m));   /* < 1 */
+    assert(!sim_editar_tarefa(&s, "1", "duracao", "abc", m, sizeof m)); /* texto */
+    assert(sim_editar_tarefa(&s, "1", "duracao", "5", m, sizeof m));
     assert(s.atual.tarefas[0].duracao == 5);
     assert(s.atual.tarefas[0].exec_restante == 3); /* a atual nao mudou */
 
@@ -615,10 +704,10 @@ static void teste_editar(void)
     /* O limite do tempo restante e a duracao da execucao EM ANDAMENTO:
      * com duracao 2 e 5 restantes, o restante 4 tem de ser aceito, e o 6
      * (mais que os 5 da execucao atual) recusado. */
-    assert(sim_editar_tarefa(&s, 1, "duracao", "2", m, sizeof m));
-    assert(sim_editar_tarefa(&s, 1, "exec_restante", "4", m, sizeof m));
+    assert(sim_editar_tarefa(&s, "1", "duracao", "2", m, sizeof m));
+    assert(sim_editar_tarefa(&s, "1", "exec_restante", "4", m, sizeof m));
     assert(s.atual.tarefas[0].exec_restante == 4);
-    assert(!sim_editar_tarefa(&s, 1, "exec_restante", "6", m, sizeof m));
+    assert(!sim_editar_tarefa(&s, "1", "exec_restante", "6", m, sizeof m));
     sim_liberar(&s);
 
     printf("autoteste: editar tarefa ... ok\n");
@@ -764,8 +853,8 @@ static void teste_estado_json(void)
     assert(strcmp(buf, "{\"carregado\":false,\"tick\":0,\"terminada\":false,"
                        "\"algoritmo\":\"\",\"quantum\":0,\"ncpus\":0,"
                        "\"ultimo_evento\":\"\",\"cpus\":[],\"tarefas\":[],"
-                       "\"algoritmos\":[\"RM\",\"EDF\",\"TESTE\"]}") == 0);
-    /* "TESTE" e o algoritmo que teste_escalonador registrou: ele aparece na
+                       "\"algoritmos\":[\"RM\",\"EDF\",\"FILA\",\"TESTE\"]}") == 0);
+    /* "FILA" e "TESTE" sao os algoritmos que teste_escalonador registrou: ele aparece na
      * lista sem ninguem mexer no estado_json.c. E o req. 4.2 funcionando. */
 
     /* Depois de carregar: cabecalho, cor no formato do CSS, e o texto de
@@ -774,9 +863,9 @@ static void teste_estado_json(void)
     assert(estado_json_atual(&s, buf, sizeof buf) == (int)strlen(buf));
     assert(strstr(buf, "{\"carregado\":true,\"tick\":0,\"terminada\":false,"
                        "\"algoritmo\":\"EDF\",\"quantum\":3,\"ncpus\":2,") == buf);
-    assert(strstr(buf, "{\"id\":7,\"cor\":\"#FF000A\",\"ingresso\":0,\"duracao\":2,"
+    assert(strstr(buf, "{\"id\":\"7\",\"cor\":\"#FF000A\",\"ingresso\":0,\"duracao\":2,"
                        "\"periodo\":5,\"prazo\":4,"));
-    assert(strstr(buf, "\"eventos\":\"ev \\\"x\\\"\"},{\"id\":8,"));
+    assert(strstr(buf, "\"eventos\":\"ev \\\"x\\\"\"},{\"id\":\"8\","));
     assert(strstr(buf, "\"cpus\":[{\"id\":0,") && strstr(buf, "},{\"id\":1,"));
     assert(buf[strlen(buf) - 2] == ']' && buf[strlen(buf) - 1] == '}');
 
@@ -785,8 +874,11 @@ static void teste_estado_json(void)
      * distribuir CPUs e trabalho da escalonar(), que e de outro card. */
     s.atual.cpus[1].tarefa = 0;
     assert(estado_json_atual(&s, buf, sizeof buf) > 0);
-    assert(strstr(buf, "{\"id\":1,\"tarefa\":7,") != NULL);
+    assert(strstr(buf, "{\"id\":1,\"tarefa\":\"7\",") != NULL);
     s.atual.cpus[1].tarefa = -1;
+    /* CPU sem tarefa: null, e nao um texto que poderia ser o id de alguem. */
+    assert(estado_json_atual(&s, buf, sizeof buf) > 0);
+    assert(strstr(buf, "{\"id\":1,\"tarefa\":null,") != NULL);
 
     /* Buffer pequeno: -1 e NADA pela metade (contrato de estado_json.h). */
     assert(estado_json_atual(&s, pequeno, sizeof pequeno) == -1);
@@ -816,7 +908,7 @@ static void teste_estado_json(void)
         /* Uma vez so: nao pode repetir a cada tarefa. */
         assert(strstr(strstr(buf, "\"avisos\"") + 1, "\"avisos\"") == NULL);
         /* So a tarefa periodica entrou. */
-        assert(strstr(buf, "{\"id\":1,") != NULL && strstr(buf, "{\"id\":2,") == NULL);
+        assert(strstr(buf, "{\"id\":\"1\",") != NULL && strstr(buf, "{\"id\":\"2\",") == NULL);
 
         /* Sem diagnostico (as outras rotas): o campo nem aparece. */
         assert(estado_json_atual(&s, buf, sizeof buf) > 0);

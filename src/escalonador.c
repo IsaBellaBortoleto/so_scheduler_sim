@@ -2,32 +2,37 @@
  * escalonador.c — algoritmos de escalonamento e critérios de desempate
  *
  * RESUMO
- *  - Um algoritmo é só UMA função de prioridade. Valor MAIOR ganha.
- *      RM  = -(período)        prioridade fixa
- *      EDF = -(deadline_abs)   prioridade dinâmica
- *  - O kernel não conhece RM nem EDF. Ele só chama escalonador_buscar (ao
- *    carregar o arquivo) e escalonador_ordenar (a cada tick).     [req. 4.2]
- *  - Algoritmo novo: escrever a função de prioridade e registrar em
- *    escalonador_registrar_padroes. Nenhuma linha do kernel muda.
- *  - Empate: 5 critérios em cascata, em comparar_sem_sorteio.      [req. 4.3]
+ *  - Um algoritmo é DADO, não código: uma lista de critérios (campo do TCB +
+ *    "menor" ou "maior" ganha) e a flag preemptivo. Exemplos:
+ *      RM   = periodo;menor        prioridade fixa
+ *      EDF  = deadline_abs;menor   prioridade dinâmica
+ *      FIFO = ativacao;menor       não preemptivo
+ *  - O usuário cria algoritmos sem recompilar: por um .txt ou pelo
+ *    formulário da página, ambos lidos por escalonador_carregar_texto.
+ *    RM e EDF são registrados pelo mesmo caminho.               [req. 4.2]
+ *  - O kernel não conhece nenhum algoritmo. Ele só chama escalonador_buscar
+ *    (ao carregar o arquivo) e escalonador_ordenar (a cada tick).
+ *  - Empate: 5 critérios em cascata, em comparar_sem_sorteio.    [req. 4.3]
  * ==========================================================================*/
 #include "escalonador.h"
 #include "config.h" /* str_igual_ci */
 
 #include <stddef.h>
+#include <stdio.h>
+#include <string.h>
 
 /* --------------------------- tabela de algoritmos ------------------------ */
 
 /* Algoritmos registrados. Vetor de tamanho fixo: são poucos, e assim não
- * precisa de malloc. */
-#define MAX_ALGORITMOS 8
+ * precisa de malloc. Valem até o programa fechar. */
+#define MAX_ALGORITMOS 32
 static Escalonador tabela[MAX_ALGORITMOS];
 static int n_algoritmos = 0;
 
 /* Guarda um algoritmo na tabela.
  * A atribuição copia a struct INTEIRA, por isso quem chama pode passar uma
- * variável local. Os textos não são copiados, só os ponteiros: use strings
- * literais. Ponteiro nulo ou tabela cheia: ignora. */
+ * variável local (nome e descrição são vetores dentro da struct e vão
+ * junto). Ponteiro nulo ou tabela cheia: ignora. */
 void escalonador_registrar(const Escalonador *esc)
 {
     /* 
@@ -63,43 +68,44 @@ const Escalonador *escalonador_buscar(const char *nome)
     return NULL;
 }
 
+/* --------------------------- campos e critérios -------------------------- */
+
+/* Campos do TCB que um critério pode usar, pelo nome que o usuário escreve.
+ * Todos são int. 'desloc' é a posição do campo dentro do TCB (offsetof):
+ * assim um critério guarda só o índice desta tabela, e valor_campo lê o
+ * campo certo sem um switch por algoritmo. Campo novo = uma linha aqui. */
+static const struct { const char *nome; size_t desloc; } campos[] = {
+    {"periodo",       offsetof(TCB, periodo)},
+    {"prazo",         offsetof(TCB, prazo)},
+    {"deadline_abs",  offsetof(TCB, deadline_abs)},
+    {"ativacao",      offsetof(TCB, ativacao)},
+    {"ingresso",      offsetof(TCB, ingresso)},
+    {"duracao",       offsetof(TCB, duracao)},
+    {"exec_restante", offsetof(TCB, exec_restante)},
+};
+#define N_CAMPOS ((int)(sizeof campos / sizeof campos[0]))
+
+/* Valor do campo de índice 'campo' na tarefa 't'. */
+static long valor_campo(const TCB *t, int campo)
+{
+    return *(const int *)((const char *)t + campos[campo].desloc);
+}
+
 /* ------------------------ algoritmos nativos (req. 4) -------------------- */
 
-/* RATE MONOTONIC: menor período = mais prioritária.
- * Prioridade FIXA: o período nunca muda, então a ordem entre duas tarefas é
- * sempre a mesma.
- * O tick não é usado. O parâmetro existe porque todos os algoritmos têm a
- * mesma assinatura (é o que permite trocar um pelo outro). */
-static long prio_rm(const TCB *t, int tick)
-{
-    (void)tick;
-    /* Sinal trocado: no projeto o valor MAIOR ganha, e no RM ganha o MENOR
-     * período. */
-    return -(long)t->periodo;
-}
-
-/* EARLIEST DEADLINE FIRST: deadline absoluto mais próximo = mais prioritária.
- * Prioridade DINÂMICA: o deadline_abs é recalculado pela ativar() do kernel
- * a cada período, e por isso a ordem entre duas tarefas pode virar.
- * Também não usa o tick: o prazo já está pronto no TCB. */
-static long prio_edf(const TCB *t, int tick)
-{
-    (void)tick;
-    /* Sinal trocado: o valor MAIOR ganha, e no EDF ganha o MENOR deadline. */
-    return -(long)t->deadline_abs;
-}
-
 /* Registra RM e EDF. O main chama antes de qualquer outra coisa.
- * Campos: nome usado no arquivo de configuração, descrição, função.
- * Para incluir um algoritmo novo: mais uma struct e mais uma chamada aqui. */
-//Ou seja, uma listagem de algoritmos já incluídos.
+ * Eles passam pelo MESMO caminho de um algoritmo criado pelo usuário
+ * (escalonador_carregar_texto), com o mesmo formato do .txt:
+ *   RM  = menor período ganha. Prioridade FIXA: o período não muda.
+ *   EDF = menor deadline absoluto ganha. Prioridade DINÂMICA: o
+ *         deadline_abs é recalculado pela ativar() do kernel a cada período.
+ * Os dois são preemptivos (req. 4). O motivo de recusa é ignorado porque
+ * estes textos são fixos e válidos. */
 void escalonador_registrar_padroes(void)
 {
-    Escalonador rm = {"RM", "Rate Monotonic", prio_rm};
-    Escalonador edf = {"EDF", "Earliest Deadline First", prio_edf};
-
-    escalonador_registrar(&rm);
-    escalonador_registrar(&edf);
+    char m[128];
+    escalonador_carregar_texto("RM;Rate Monotonic;sim\nperiodo;menor", m, sizeof m);
+    escalonador_carregar_texto("EDF;Earliest Deadline First;sim\ndeadline_abs;menor", m, sizeof m);
 }
 
 /* ----------------------------- desempate (4.3) --------------------------- */
@@ -109,31 +115,41 @@ void escalonador_registrar_padroes(void)
  *
  * NÃO usa rand(): o simulador retrocede e avança (req. 1.5.2), então o
  * sorteio tem que dar SEMPRE a mesma resposta para a mesma situação. O
- * resultado é uma conta (hash) feita com o tick e os dois ids.
+ * resultado é uma conta (hash FNV-1a) feita com o tick e os dois ids.
  *
- * A conta usa (menor id, maior id), nessa ordem, para que sorteio(a,b) e
- * sorteio(b,a) apontem o mesmo vencedor. */
-static int sorteio(int tick, int ida, int idb)
+ * Os ids são TEXTO: o hash mistura as letras de cada um. Elas entram
+ * sempre na ordem (menor id, maior id), dada por id_comparar, para que
+ * sorteio(a,b) e sorteio(b,a) apontem o mesmo vencedor. */
+static int sorteio(int tick, const char *ida, const char *idb)
 {
-    int menor = (ida < idb) ? ida : idb;
-    int maior = (ida > idb) ? ida : idb;
+    int c = id_comparar(ida, idb);
+    const char *menor = (c <= 0) ? ida : idb;
+    const char *maior = (c <= 0) ? idb : ida;
+    const char *vencedor;
     unsigned h = 2166136261u;
 
-    if (ida == idb)
+    if (c == 0)
         return 0; /* uma tarefa não disputa sorteio consigo mesma */
 
-    /* Mistura os três números num valor "bagunçado" (hash FNV-1a).
-     * unsigned porque a multiplicação estoura de propósito. */
-    h = (h ^ (unsigned)tick)  * 16777619u;
-    h = (h ^ (unsigned)menor) * 16777619u;
-    h = (h ^ (unsigned)maior) * 16777619u;
+    /* Mistura tudo num valor "bagunçado". unsigned porque a multiplicação
+     * estoura de propósito. */
+    h = (h ^ (unsigned)tick) * 16777619u;
+    for (const char *p = menor; *p; p++)
+        h = (h ^ (unsigned char)*p) * 16777619u;
+    /* Separador entre os dois ids: sem ele, ("ab","c") e ("a","bc")
+     * misturariam as mesmas letras na mesma ordem e dariam o mesmo hash.
+     * 0xFF nunca aparece num id (só letras, números, '_' e '-'). */
+    h = (h ^ 0xFFu) * 16777619u;
+    for (const char *p = maior; *p; p++)
+        h = (h ^ (unsigned char)*p) * 16777619u;
 
     /* Um bit do meio do hash decide se ganha o menor id ou o maior.
      * (O último bit não serve: só alterna entre par e ímpar.) */
-    int menor_ganha = (h >> 16) & 1;
-    int vencedor = menor_ganha ? menor : maior;
+    vencedor = ((h >> 16) & 1) ? menor : maior;
 
-    /* A resposta é do ponto de vista de ida: -1 se foi ela que ganhou. */
+    /* A resposta é do ponto de vista de ida: -1 se foi ela que ganhou.
+     * Compara os PONTEIROS, e não o texto: 'vencedor' é uma cópia de 'ida'
+     * ou de 'idb'. */
     return (ida == vencedor) ? -1 : 1;
 }
 
@@ -144,17 +160,46 @@ static int sorteio(int tick, int ida, int idb)
  * Funciona em CASCATA: cada critério só é consultado se o anterior empatou.
  * O primeiro que diferenciar as duas tarefas decide.
  *
+ * Critério 0 = o algoritmo: a lista de critérios dele, na ordem em que o
+ * usuário escreveu (ou a função em C, se houver).
  * Critério 2: "prazo" é o valor lido do arquivo (contado a partir da
  * ativação), e não o deadline absoluto. */
 static int comparar_sem_sorteio(const Escalonador *esc, const TCB *a, const TCB *b, int tick)
 {
-    long pa = esc->prioridade(a, tick);
-    long pb = esc->prioridade(b, tick);
-    if (pa != pb)
-        return (pa > pb) ? -1 : 1; // (0) prioridade do algoritmo: MAIOR ganha
-
     int ea = (a->estado == EST_EXECUTANDO);
     int eb = (b->estado == EST_EXECUTANDO);
+
+    /* Algoritmo NÃO preemptivo: quem já está na CPU ganha de qualquer um,
+     * antes mesmo do critério do algoritmo. Ela só sai ao terminar, no fim
+     * do quantum ou se for suspensa: nesses casos o kernel já tirou o estado
+     * EXECUTANDO, e ela volta a disputar normalmente. */
+    if (!esc->preemptivo && ea != eb)
+        return (ea > eb) ? -1 : 1;
+
+    /* (0) o algoritmo */
+    if (esc->prioridade != NULL)
+    {
+        /* Algoritmo escrito em C: valor MAIOR ganha. */
+        long pa = esc->prioridade(a, tick);
+        long pb = esc->prioridade(b, tick);
+        if (pa != pb)
+            return (pa > pb) ? -1 : 1;
+    }
+    else
+    {
+        /* Algoritmo por critérios: o primeiro campo diferente decide. */
+        for (int i = 0; i < esc->n_criterios; i++)
+        {
+            long va = valor_campo(a, esc->criterios[i].campo);
+            long vb = valor_campo(b, esc->criterios[i].campo);
+            if (va != vb)
+            {
+                int a_ganha = esc->criterios[i].maior_ganha ? (va > vb) : (va < vb);
+                return a_ganha ? -1 : 1;
+            }
+        }
+    }
+
     if (ea != eb)
         return (ea > eb) ? -1 : 1; // (1) quem já executava: evita troca de contexto
 
@@ -244,4 +289,100 @@ void escalonador_ordenar(const Escalonador *esc, Estado *e, int *indices, int n)
             com_vaga->sorteada = 1;
         }
     }
+}
+
+/* ------------------- algoritmo definido pelo usuário --------------------- */
+
+/* Corta 'p' no próximo ';', tira espaços das pontas do pedaço cortado e
+ * devolve o começo do campo seguinte (NULL se não houver). */
+static char *cortar(char **p)
+{
+    char *ini = *p, *fim;
+    if (ini == NULL) return "";
+    fim = strchr(ini, ';');
+    *p = fim ? fim + 1 : NULL;
+    if (fim) *fim = '\0';
+    while (*ini == ' ' || *ini == '\t') ini++;
+    fim = ini + strlen(ini);
+    while (fim > ini && (fim[-1] == ' ' || fim[-1] == '\t' || fim[-1] == '\r')) *--fim = '\0';
+    return ini;
+}
+
+/* Lê a definição de um algoritmo e o registra na tabela. É o único caminho
+ * de entrada: o .txt escolhido na página, o formulário (que monta o mesmo
+ * texto) e os nativos RM e EDF passam por aqui.
+ *
+ *   nome;descricao;preemptivo      <- 1ª linha útil; preemptivo = sim | nao
+ *   campo;sentido                  <- um critério por linha; menor | maior
+ *
+ * Vale o mesmo do arquivo de configuração: maiúsculas/minúsculas não
+ * importam (3.3.2), o ';' final é opcional (3.3.3), linhas em branco e
+ * começadas por '#' são ignoradas (3.3.6).
+ * Só registra se TUDO estiver certo: recusado, a tabela fica como estava e
+ * 'motivo' diz o porquê (req. 5). */
+int escalonador_carregar_texto(const char *texto, char *motivo, int tam)
+{
+    Escalonador novo = {0};
+    char copia[1024], *linha, *prox;
+    int cabecalho_lido = 0;
+
+    if (strlen(texto) >= sizeof copia) {
+        snprintf(motivo, tam, "Definicao de algoritmo grande demais.");
+        return 0;
+    }
+    strcpy(copia, texto);
+
+    for (linha = copia; linha != NULL; linha = prox) {
+        char *resto, *c1, *c2, *c3;
+        prox = strchr(linha, '\n');
+        if (prox) *prox++ = '\0';
+        resto = linha;
+        c1 = cortar(&resto); c2 = cortar(&resto); c3 = cortar(&resto);
+        if (*c1 == '\0' || *c1 == '#') continue;      /* linha em branco ou comentário */
+
+        if (!cabecalho_lido) {                         /* nome;descricao;preemptivo */
+            if (strlen(c1) >= sizeof novo.nome) {
+                snprintf(motivo, tam, "Nome '%s' passa de 15 caracteres.", c1); return 0;
+            }
+            if (escalonador_buscar(c1) != NULL) {
+                snprintf(motivo, tam, "Ja existe um algoritmo chamado '%s'.", c1); return 0;
+            }
+            if (str_igual_ci(c3, "sim")) novo.preemptivo = 1;
+            else if (str_igual_ci(c3, "nao")) novo.preemptivo = 0;
+            else { snprintf(motivo, tam, "Preemptivo deve ser 'sim' ou 'nao' (veio '%s').", c3); return 0; }
+            for (char *q = c1; *q; q++)                /* guarda em maiúsculas, como "RM" */
+                if (*q >= 'a' && *q <= 'z') *q -= 32;
+            snprintf(novo.nome, sizeof novo.nome, "%s", c1);
+            snprintf(novo.descricao, sizeof novo.descricao, "%s", c2);
+            cabecalho_lido = 1;
+            continue;
+        }
+
+        /* campo;sentido */
+        int campo = -1;
+        for (int i = 0; i < N_CAMPOS; i++)
+            if (str_igual_ci(campos[i].nome, c1)) campo = i;
+        if (campo < 0) {
+            snprintf(motivo, tam, "Campo '%s' nao existe (validos: periodo, prazo, deadline_abs, "
+                     "ativacao, ingresso, duracao, exec_restante).", c1);
+            return 0;
+        }
+        if (!str_igual_ci(c2, "menor") && !str_igual_ci(c2, "maior")) {
+            snprintf(motivo, tam, "Sentido deve ser 'menor' ou 'maior' (veio '%s').", c2); return 0;
+        }
+        if (novo.n_criterios >= MAX_CRITERIOS) {
+            snprintf(motivo, tam, "No maximo %d criterios por algoritmo.", MAX_CRITERIOS); return 0;
+        }
+        novo.criterios[novo.n_criterios].campo = campo;
+        novo.criterios[novo.n_criterios].maior_ganha = str_igual_ci(c2, "maior");
+        novo.n_criterios++;
+    }
+
+    if (!cabecalho_lido)        { snprintf(motivo, tam, "Definicao vazia."); return 0; }
+    if (novo.n_criterios == 0)  { snprintf(motivo, tam, "O algoritmo precisa de pelo menos um criterio."); return 0; }
+    if (n_algoritmos >= MAX_ALGORITMOS) {
+        snprintf(motivo, tam, "Limite de %d algoritmos atingido.", MAX_ALGORITMOS); return 0;
+    }
+    escalonador_registrar(&novo);
+    return 1;
 }

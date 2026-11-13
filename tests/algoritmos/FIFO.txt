@@ -1,0 +1,4 @@
+# nome;descricao;preemptivo (sim/nao)
+FIFO;First In First Out;nao
+# um criterio por linha: campo;sentido (menor/maior ganha)
+ativacao;menor

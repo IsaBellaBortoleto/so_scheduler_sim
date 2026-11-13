@@ -27,14 +27,17 @@
 #include <string.h>
 
 /* Acha a POSIÇÃO de uma tarefa no vetor a partir do ID que o usuário vê.
- * São coisas diferentes: o ID vem do arquivo (pode ser 7, 42...), a posição
- * é 0, 1, 2... Devolve -1 se o ID não existe. Busca simples, uma por uma:
+ * São coisas diferentes: o ID é o TEXTO do arquivo ("t06", "7"...), a
+ * posição é 0, 1, 2... Dentro do núcleo tudo anda pela posição (CPU.tarefa,
+ * candidatos do escalonador); o id só aparece na entrada (arquivo, edição)
+ * e na saída (JSON, Gantt). Devolve -1 se o ID não existe.
+ * str_igual_ci: "T06" acha "t06" (req. 3.3.2). Busca simples, uma por uma:
  * com ~190 tarefas e uma busca por clique, não vale nada mais elaborado. */
-int sim_indice_por_id(const Estado *e, int id)
+int sim_indice_por_id(const Estado *e, const char *id)
 {
     for (int i = 0; i < e->ntarefas; i++)
     {
-        if (e->tarefas[i].id == id)
+        if (str_igual_ci(e->tarefas[i].id, id))
             return i;
     }
     return -1;
@@ -363,10 +366,13 @@ int sim_iniciar(Simulacao *s, Estado *inicial, Diagnostico *d)
     const Escalonador *esc = escalonador_buscar(inicial->algoritmo);
     if (esc == NULL)
     {
-        /* Erro claro (requisito 5): diz o que veio e o que é aceito. */
+        /* Erro claro (requisito 5): diz o que veio, o que é aceito e o que
+         * fazer -- o algoritmo pode ser criado pelo usuário (req. 4.2). */
         char lista[128];
         listar_algoritmos(lista, sizeof lista);
-        diag_erro(d, "algoritmo \"%s\" nao existe (disponiveis: %s)",
+        diag_erro(d, "algoritmo \"%s\" nao existe (disponiveis: %s). "
+                     "Para usa-lo, adicione-o em \"novo algoritmo\" "
+                     "e carregue o arquivo de novo.",
                   inicial->algoritmo, lista);
         return 0;
     }
@@ -550,7 +556,7 @@ void sim_liberar_copia(const Simulacao *s, Simulacao *copia)
     free(copia->historico);
     estado_liberar(&copia->atual);
 }
-static int aplicar_edicao(Simulacao *s, int id_tarefa, const char *campo,
+static int aplicar_edicao(Simulacao *s, const char *id_tarefa, const char *campo,
                           const char *valor, char *motivo, int motivo_tam)
 {
     int indice = sim_indice_por_id(&s->atual, id_tarefa);
@@ -560,7 +566,7 @@ static int aplicar_edicao(Simulacao *s, int id_tarefa, const char *campo,
 
     if (indice == -1)
     {
-        snprintf(motivo, motivo_tam, "O id %d nao esta no registro", id_tarefa);
+        snprintf(motivo, motivo_tam, "O id '%s' nao esta no registro", id_tarefa);
         return 0;
     }
     tarefa = &s->atual.tarefas[indice];
@@ -601,13 +607,13 @@ static int aplicar_edicao(Simulacao *s, int id_tarefa, const char *campo,
             /* Reabrir faria a conta passar das 10 execuções (req. 4.4). Não
              * diz "concluiu as 10": ela pode ter sido concluída à mão. */
             snprintf(motivo, motivo_tam,
-                     "A tarefa %d ja esta concluida e nao pode ser reaberta.", id_tarefa);
+                     "A tarefa %s ja esta concluida e nao pode ser reaberta.", id_tarefa);
             return 0;
         }
         if (tarefa->estado == EST_INATIVA && novo_estado == EST_SUSPENSA)
         {
             snprintf(motivo, motivo_tam,
-                     "A tarefa %d nao esta ativa; nao ha o que suspender.", id_tarefa);
+                     "A tarefa %s nao esta ativa; nao ha o que suspender.", id_tarefa);
             return 0;
         }
 
@@ -660,7 +666,7 @@ static int aplicar_edicao(Simulacao *s, int id_tarefa, const char *campo,
         if (!ativa)
         {
             snprintf(motivo, motivo_tam,
-                     "A tarefa %d nao esta ativa; nao ha execucao em andamento.", id_tarefa);
+                     "A tarefa %s nao esta ativa; nao ha execucao em andamento.", id_tarefa);
             return 0;
         }
         /* Mínimo 1, não 0: uma tarefa ativa com 0 restante ainda rodaria
@@ -717,7 +723,7 @@ static int aplicar_edicao(Simulacao *s, int id_tarefa, const char *campo,
  *
  * Dividida em duas: aplicar_edicao (acima) valida e aplica; esta faz o que
  * vale para TODA edição aceita, sem repetir em cada campo. */
-int sim_editar_tarefa(Simulacao *s, int id_tarefa, const char *campo,
+int sim_editar_tarefa(Simulacao *s, const char *id_tarefa, const char *campo,
                       const char *valor, char *motivo, int motivo_tam)
 {
     if (!aplicar_edicao(s, id_tarefa, campo, valor, motivo, motivo_tam))
@@ -806,8 +812,8 @@ int sim_trocar_algoritmo(Simulacao *s, const char *nome,
          * algoritmo novo entra na mensagem sozinho (req. 4.2). */
         char lista[128];
         listar_algoritmos(lista, sizeof lista);
-        snprintf(motivo, motivo_tam, "O algoritmo '%s' nao existe (disponiveis: %s).",
-                 nome, lista);
+        snprintf(motivo, motivo_tam, "O algoritmo '%s' nao existe (disponiveis: %s). "
+                 "Adicione-o em \"novo algoritmo\".", nome, lista);
         return 0;
     }
 

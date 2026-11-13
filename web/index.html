@@ -103,6 +103,44 @@ button:disabled { opacity: .4; cursor: not-allowed; }
  * o nome para "0...txt"). */
 #entrada-arquivo { width: 360px; }
 
+/* Diálogo "novo algoritmo". Fica FORA da barra de controles: aberto, cobre
+ * a página sem mudar o lugar de nenhum botão. */
+dialog {
+  width: min(560px, calc(100vw - 32px));
+  padding: 16px 20px;
+  background: var(--cor-painel);
+  color: var(--cor-texto);
+  border: 1px solid var(--cor-borda);
+  border-radius: 8px;
+}
+dialog::backdrop { background: rgba(0, 0, 0, .55); }
+.dlg-cabecalho { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+.dlg-cabecalho h2 { margin: 0; font-size: 16px; font-weight: 600; }
+.dlg-importar {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 8px 12px; margin-bottom: 14px;
+  border: 1px dashed var(--cor-borda); border-radius: 6px;
+  color: var(--cor-texto-fraco);
+}
+.dlg-linha { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.dlg-campo { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--cor-texto-fraco); }
+.dlg-campo input { width: 100%; }
+.dlg-nome { flex: 0 0 150px; }
+.dlg-descricao { flex: 1 1 200px; }
+.dlg-rotulo { margin: 14px 0 6px; font-size: 12px; color: var(--cor-texto-fraco); }
+.dlg-ajuda { margin: 4px 0 0; font-size: 12px; color: var(--cor-texto-fraco); }
+.linha-criterio { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.linha-criterio .ordem { flex: 0 0 72px; font-size: 12px; color: var(--cor-texto-fraco); }
+#alg-previa {
+  margin: 0; padding: 8px 12px; min-height: 48px;
+  background: var(--cor-fundo); border: 1px solid var(--cor-borda); border-radius: 6px;
+  font-family: ui-monospace, Consolas, monospace; font-size: 12px; white-space: pre-wrap;
+}
+.dlg-erro { min-height: 18px; margin: 10px 0 6px; color: var(--cor-erro); }
+.dlg-rodape { display: flex; justify-content: flex-end; gap: 8px; }
+.botao-discreto { border-color: transparent; background: transparent; font-size: 18px; line-height: 1; padding: 2px 8px; }
+.botao-principal { background: var(--cor-destaque); border-color: var(--cor-destaque); color: #fff; }
+
 /* Área de mensagens com fundo avermelhado, para chamar atenção; erros em
  * vermelho e avisos em amarelo (as duas listas de Diagnostico). */
 #area-diagnostico {
@@ -266,8 +304,66 @@ tbody tr.selecionada { background: rgba(91,141,239,.30); outline: 1px solid var(
      tick (req. 3.1). -->
 <label for="sel-algoritmo">algoritmo</label>
 <select id="sel-algoritmo" disabled></select>
+<!-- Abre o diálogo "novo algoritmo" (mais abaixo). Na barra fica só este
+     botão, para o formulário não empurrar os outros controles. -->
+<button id="btn-novo-algoritmo" title="criar um algoritmo de escalonamento">+ novo</button>
   </div>
 </section>
+
+<!-- Novo algoritmo (req. 4.2): o usuário cria um algoritmo sem recompilar,
+     importando um .txt ou preenchendo o formulário. Os dois mandam o MESMO
+     texto para POST /api/algoritmo_novo (nome;descricao;preemptivo e uma
+     linha campo;sentido por critério); quem valida é o C, e o motivo de uma
+     recusa aparece aqui dentro. Vale até fechar o programa.
+     <dialog> é do próprio navegador: abre por cima da página, fecha com Esc
+     e não precisa de biblioteca (req. geral 5). -->
+<dialog id="dlg-algoritmo" aria-labelledby="dlg-algoritmo-titulo">
+  <div class="dlg-cabecalho">
+    <h2 id="dlg-algoritmo-titulo">Novo algoritmo</h2>
+    <button id="btn-alg-fechar" class="botao-discreto" aria-label="fechar">&times;</button>
+  </div>
+
+  <!-- Caminho 1: quem já tem a definição num arquivo. O <input type="file">
+       fica escondido e é acionado pelo botão, só para o visual combinar. -->
+  <div class="dlg-importar">
+    <span>Já tem a definição pronta?</span>
+    <button id="btn-alg-importar">importar .txt</button>
+    <input type="file" id="arq-algoritmo" accept=".txt,text/plain" hidden>
+  </div>
+
+  <!-- Caminho 2: o formulário. -->
+  <div class="dlg-linha">
+    <label class="dlg-campo dlg-nome">nome
+      <input id="alg-nome" placeholder="FIFO" maxlength="15" autocomplete="off">
+    </label>
+    <label class="dlg-campo dlg-descricao">descrição
+      <input id="alg-descricao" placeholder="First In First Out" maxlength="63" autocomplete="off">
+    </label>
+  </div>
+
+  <div class="dlg-rotulo">preempção</div>
+  <div class="dlg-linha">
+    <label><input type="radio" name="alg-preemptivo" value="sim" checked> preemptivo</label>
+    <label><input type="radio" name="alg-preemptivo" value="nao"> não preemptivo</label>
+  </div>
+  <p id="alg-preemptivo-ajuda" class="dlg-ajuda"></p>
+
+  <!-- A ordem importa: o 2º critério só é consultado se o 1º empatar. -->
+  <div class="dlg-rotulo">critérios de prioridade, em ordem</div>
+  <div id="alg-criterios"></div>
+  <button id="btn-alg-criterio">+ critério de desempate</button>
+
+  <!-- O texto que será enviado ao C: é o mesmo conteúdo de um .txt de
+       algoritmo, então serve também para o usuário aprender o formato. -->
+  <div class="dlg-rotulo">prévia do .txt</div>
+  <pre id="alg-previa"></pre>
+
+  <p id="alg-erro" class="dlg-erro" role="alert"></p>
+  <div class="dlg-rodape">
+    <button id="btn-alg-cancelar">cancelar</button>
+    <button id="btn-alg-salvar" class="botao-principal">adicionar algoritmo</button>
+  </div>
+</dialog>
 
 <!-- Mensagens (req. 3.3.6 e 5): escondida ('hidden') ate haver algo a
      dizer. Erros em vermelho, avisos em amarelo (cores no <style>). -->
@@ -387,9 +483,9 @@ tbody tr.selecionada { background: rgba(91,141,239,.30); outline: 1px solid var(
  *     "algoritmo": string, "quantum": int, "ncpus": int,
  *     "ultimo_evento": string,
  *     "algoritmos": [string...],  (os registrados no C, para o seletor)
- *     "cpus":    [ { "id": int, "tarefa": int (-1 = nenhuma), "ticks_desligada": int } ],
+ *     "cpus":    [ { "id": int, "tarefa": string | null (o id; null = nenhuma), "ticks_desligada": int } ],
  *     "tarefas": [ {
- *         "id": int, "cor": "#RRGGBB",
+ *         "id": string (ex. "t06"), "cor": "#RRGGBB",
  *         "ingresso": int, "duracao": int, "periodo": int, "prazo": int,
  *         "estado": "INATIVA"|"PRONTA"|"EXECUTANDO"|"SUSPENSA"|"CONCLUIDA",
  *         "exec_restante": int, "quantum_restante": int,
@@ -411,7 +507,7 @@ tbody tr.selecionada { background: rgba(91,141,239,.30); outline: 1px solid var(
  *     -> sempre o Estado. Se não havia o que fazer (simulação já terminada,
  *        ou já no tick 0), o Estado volta igual.
  *
- *   POST /api/editar     corpo: { "id": int, "campo": string, "valor": string }
+ *   POST /api/editar     corpo: { "id": string, "campo": string, "valor": string }
  *                          (nesta ordem e sem espaços: o C lê com um sscanf)
  *     -> Estado, ou { "erro": true, "erros": [motivo], "avisos": [] } se a
  *        edição foi recusada (mesmo formato do erro de carregamento).
@@ -681,6 +777,140 @@ tbody tr.selecionada { background: rgba(91,141,239,.30); outline: 1px solid var(
     aplicarNovoEstado(resp);
   }
 
+  /* ------------------------------ novo algoritmo ---------------------------- */
+
+  /* Campos do TCB que um critério pode usar e o máximo de critérios. Quem
+   * manda é o C (tabela 'campos' e MAX_CRITERIOS, em escalonador): um nome
+   * fora da lista ou um 5º critério seria recusado lá. Repetidos aqui só
+   * para montar o formulário. */
+  const CAMPOS_CRITERIO = ["periodo", "prazo", "deadline_abs", "ativacao",
+                           "ingresso", "duracao", "exec_restante"];
+  const MAX_CRITERIOS = 4;
+
+  /* Os critérios do formulário, na ordem de prioridade. A tela é sempre
+   * redesenhada a partir desta lista (desenharAlgoritmo). */
+  let criterios = [];
+
+  function preemptivoEscolhido() {
+    return document.querySelector('input[name="alg-preemptivo"]:checked').value;
+  }
+
+  /* O texto que vai para o C: o mesmo conteúdo de um .txt de algoritmo. */
+  function textoDoAlgoritmo() {
+    const cabecalho = [$("#alg-nome").value.trim().toUpperCase(),
+                       $("#alg-descricao").value.trim(), preemptivoEscolhido()].join(";");
+    return [cabecalho, ...criterios.map((c) => c.campo + ";" + c.sentido)].join("\n");
+  }
+
+  /* Redesenha as linhas de critério, a ajuda da preempção e a prévia. */
+  function desenharAlgoritmo() {
+    const caixa = $("#alg-criterios");
+    caixa.innerHTML = "";
+    criterios.forEach((criterio, i) => {
+      const linha = document.createElement("div");
+      const ordem = document.createElement("span");
+      const campo = document.createElement("select");
+      const sentido = document.createElement("select");
+      linha.className = "linha-criterio";
+      ordem.className = "ordem";
+      /* O 1º decide; os seguintes só valem se os anteriores empatarem. */
+      ordem.textContent = i === 0 ? "1º" : "empate " + (i + 1) + "º";
+
+      /* Um campo já usado em outra linha fica desabilitado: repetir o
+       * mesmo critério nunca desempata nada. */
+      for (const nome of CAMPOS_CRITERIO) {
+        const op = new Option(nome, nome);
+        op.disabled = criterios.some((c, j) => j !== i && c.campo === nome);
+        campo.add(op);
+      }
+      campo.value = criterio.campo;
+      campo.setAttribute("aria-label", "campo do critério " + (i + 1));
+      campo.addEventListener("change", () => { criterio.campo = campo.value; desenharAlgoritmo(); });
+
+      sentido.add(new Option("menor ganha", "menor"));
+      sentido.add(new Option("maior ganha", "maior"));
+      sentido.value = criterio.sentido;
+      sentido.setAttribute("aria-label", "sentido do critério " + (i + 1));
+      sentido.addEventListener("change", () => { criterio.sentido = sentido.value; desenharAlgoritmo(); });
+
+      linha.append(ordem, campo, sentido);
+      /* Sempre sobra pelo menos um critério: sem nenhum o C recusa. */
+      if (criterios.length > 1) {
+        const remover = document.createElement("button");
+        remover.className = "botao-discreto";
+        remover.textContent = "\u00d7";
+        remover.setAttribute("aria-label", "remover o critério " + (i + 1));
+        remover.addEventListener("click", () => { criterios.splice(i, 1); desenharAlgoritmo(); });
+        linha.append(remover);
+      }
+      caixa.append(linha);
+    });
+
+    $("#btn-alg-criterio").hidden = criterios.length >= MAX_CRITERIOS;
+    $("#alg-preemptivo-ajuda").textContent = preemptivoEscolhido() === "sim"
+      ? "Uma tarefa com prioridade maior tira a que está na CPU."
+      : "Quem está na CPU só sai ao terminar, no fim do quantum ou se for suspensa.";
+    $("#alg-previa").textContent = textoDoAlgoritmo();
+  }
+
+  /* Abre o diálogo com o formulário limpo e um critério já na tela. */
+  function abrirNovoAlgoritmo() {
+    $("#alg-nome").value = "";
+    $("#alg-descricao").value = "";
+    document.querySelector('input[name="alg-preemptivo"][value="sim"]').checked = true;
+    criterios = [{ campo: CAMPOS_CRITERIO[0], sentido: "menor" }];
+    $("#alg-erro").textContent = "";
+    desenharAlgoritmo();
+    $("#dlg-algoritmo").showModal();
+    $("#alg-nome").focus();
+  }
+
+  function aoAdicionarCriterio() {
+    /* Começa no primeiro campo ainda não usado. */
+    const livre = CAMPOS_CRITERIO.find((nome) => !criterios.some((c) => c.campo === nome));
+    criterios.push({ campo: livre, sentido: "menor" });
+    desenharAlgoritmo();
+  }
+
+  /* Manda a definição (texto) para o C. Aceita: fecha o diálogo, o seletor
+   * é refeito com o algoritmo novo e a página avisa. Recusada: o motivo
+   * aparece DENTRO do diálogo, ao lado do que precisa ser corrigido, e o
+   * que foi digitado continua lá. */
+  async function enviarAlgoritmo(texto) {
+    $("#alg-erro").textContent = "";
+    const resp = await chamarApi("/api/algoritmo_novo", { method: "POST", body: texto });
+    if (resp.erro) {
+      $("#alg-erro").textContent = (resp.erros || [])[0] || "O algoritmo foi recusado.";
+      return;
+    }
+    $("#dlg-algoritmo").close();
+    aplicarNovoEstado(resp);
+    /* O último da lista é o que acabou de entrar (o C acrescenta no fim).
+     * Ele NÃO entra em uso sozinho: trocar o algoritmo de uma simulação em
+     * andamento é escolha do usuário. */
+    const nome = (resp.algoritmos || []).slice(-1)[0];
+    mostrarDiagnostico([], ["Algoritmo " + nome + " adicionado. Escolha-o no seletor " +
+      "ou use o nome na primeira linha do arquivo de configuração."]);
+  }
+
+  /* Caminho 1: um .txt com a definição. O conteúdo vai como está. */
+  async function aoEscolherArquivoAlgoritmo(ev) {
+    const arquivo = ev.target.files[0];
+    if (arquivo) await enviarAlgoritmo(await arquivo.text());
+    ev.target.value = ""; /* permite escolher o mesmo arquivo de novo */
+  }
+
+  /* Caminho 2: o formulário. Só o nome é conferido aqui (para o foco ir ao
+   * campo); todo o resto quem valida é o C. */
+  async function aoSalvarAlgoritmo() {
+    if ($("#alg-nome").value.trim() === "") {
+      $("#alg-erro").textContent = "Dê um nome ao algoritmo.";
+      $("#alg-nome").focus();
+      return;
+    }
+    await enviarAlgoritmo(textoDoAlgoritmo());
+  }
+
   /* ------------------------- aplicar estado recebido ------------------------ */
 
   function aplicarNovoEstado(estado) {
@@ -727,14 +957,18 @@ tbody tr.selecionada { background: rgba(91,141,239,.30); outline: 1px solid var(
     els.btnAvancar.disabled = estado.terminada;
     els.btnExecutarTudo.disabled = estado.terminada;
     
-    /* Opções do seletor: montadas uma vez, a partir da lista do C. */
-    if (els.selAlgoritmo.options.length === 0)
-      for (const nome of estado.algoritmos || []) {
+    /* Opções do seletor: vêm da lista do C e são refeitas quando ela muda
+     * de tamanho (o usuário adicionou um algoritmo em "novo algoritmo"). */
+    const lista = estado.algoritmos || [];
+    if (els.selAlgoritmo.options.length !== lista.length) {
+      els.selAlgoritmo.innerHTML = "";
+      for (const nome of lista) {
         const op = document.createElement("option");
         op.value = nome;
         op.textContent = nome;
         els.selAlgoritmo.appendChild(op);
       }
+    }
     /* Mostra o algoritmo em vigor: depois de carregar, de trocar e de
      * retroceder para antes de uma troca. */
     els.selAlgoritmo.value = estado.algoritmo;
@@ -771,7 +1005,8 @@ tbody tr.selecionada { background: rgba(91,141,239,.30); outline: 1px solid var(
       /* O C manda o ID da tarefa, ou -1 se a CPU não tem o que executar.
        * Req. 1.2: CPU sem tarefa é DESLIGADA, e o usuário precisa ver isso
        * e por quanto tempo (a coluna seguinte). */
-      celula(tr, cpu.tarefa === -1 ? "desligada" : cpu.tarefa);
+      /* cpu.tarefa é o id (texto) da tarefa, ou null = CPU sem tarefa. */
+      celula(tr, cpu.tarefa === null ? "desligada" : cpu.tarefa);
       celula(tr, cpu.ticks_desligada);
       els.tabelaCpusBody.appendChild(tr);
     }
@@ -898,6 +1133,18 @@ tbody tr.selecionada { background: rgba(91,141,239,.30); outline: 1px solid var(
   els.formEditar.addEventListener("submit", aoSubmeterEdicao);
   els.btnFecharInspetor.addEventListener("click", fecharInspetor);
   els.selAlgoritmo.addEventListener("change", aoTrocarAlgoritmo);
+  $("#btn-novo-algoritmo").addEventListener("click", abrirNovoAlgoritmo);
+  $("#btn-alg-fechar").addEventListener("click", () => $("#dlg-algoritmo").close());
+  $("#btn-alg-cancelar").addEventListener("click", () => $("#dlg-algoritmo").close());
+  $("#btn-alg-importar").addEventListener("click", () => $("#arq-algoritmo").click());
+  $("#arq-algoritmo").addEventListener("change", aoEscolherArquivoAlgoritmo);
+  $("#btn-alg-criterio").addEventListener("click", aoAdicionarCriterio);
+  $("#btn-alg-salvar").addEventListener("click", aoSalvarAlgoritmo);
+  /* Nome, descrição e preempção mudam a prévia (e a ajuda) na hora. */
+  $("#alg-nome").addEventListener("input", desenharAlgoritmo);
+  $("#alg-descricao").addEventListener("input", desenharAlgoritmo);
+  for (const radio of document.querySelectorAll('input[name="alg-preemptivo"]'))
+    radio.addEventListener("change", desenharAlgoritmo);
   /* Trocar o campo no painel (estado -> prazo...) troca o valor sugerido. */
   els.editarCampo.addEventListener("change", sugerirValor);
   aoAbrirPagina();

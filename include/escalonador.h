@@ -15,58 +15,59 @@
  *   1. ao carregar:   s->esc = escalonador_buscar(nome_lido_do_arquivo);
  *   2. a cada tick:   escalonador_ordenar(s->esc, ...);
  * Qual algoritmo esta por tras do ponteiro s->esc, o kernel nao sabe e nao
- * precisa saber. Um algoritmo e UMA funcao (o campo 'prioridade' abaixo).
+ * precisa saber.
  *
- * PARA INCLUIR UM ALGORITMO NOVO (nenhuma linha de kernel.c muda):
- *   1. escrever uma funcao  long minha_prio(const TCB *t, int tick);
- *   2. registra-la em escalonador_registrar_padroes(), com um nome;
- *   3. usar esse nome na primeira linha do arquivo de configuracao.
+ * UM ALGORITMO E DADO, NAO CODIGO: uma lista de criterios (campo do TCB +
+ * "menor" ou "maior" ganha) e a flag preemptivo. Por isso o USUARIO inclui
+ * um algoritmo novo com o programa rodando, sem recompilar:
+ *   1. escreve a definicao -- num .txt ou no formulario "novo algoritmo":
+ *          FIFO;First In First Out;nao     <- nome;descricao;preemptivo
+ *          ativacao;menor                  <- um criterio por linha
+ *   2. a pagina manda o texto para escalonador_carregar_texto();
+ *   3. o nome passa a valer na primeira linha do arquivo de configuracao e
+ *      no seletor da pagina, ate o programa fechar.
+ * RM e EDF sao registrados por esse mesmo caminho.
  *
- * Como o registro e feito por uma chamada de funcao em tempo de execucao (e
- * nao por uma tabela fixa em tempo de compilacao), o mesmo mecanismo serviria
- * para um algoritmo vindo de uma biblioteca dinamica, como o requisito 4.2
- * sugere: bastaria a biblioteca chamar escalonador_registrar().
+ * LIMITE ASSUMIDO: criterios por campo cobrem RM, EDF, FIFO, SJF, DM...
+ * Algoritmo que exige conta (ex. menor folga) nao cabe em criterios; para
+ * esse caso ficou o campo opcional 'prioridade' (uma funcao em C), que
+ * serviria tambem a um algoritmo vindo de biblioteca dinamica (req. 4.2).
  * ==========================================================================*/
 
+/* Quantos criterios um algoritmo pode ter. O 2o so e consultado se o 1o
+ * empatar, e assim por diante; depois deles vem o desempate do req. 4.3. */
+#define MAX_CRITERIOS 4
+
 typedef struct {
-    /* Nome usado no arquivo de configuracao (ex. "RM"). A comparacao ignora
-     * maiusculas/minusculas (requisito 3.3.2). */
-    const char *nome;
+    int campo;        /* índice na tabela de campos (escalonador.c) */
+    int maior_ganha;  /* 0 = menor valor ganha, 1 = maior valor ganha */
+} Criterio;
 
-    /* Texto para mostrar ao usuario na interface. */
-    const char *descricao;
-
-    /* O ALGORITMO. Devolve a prioridade da tarefa 't' no instante 'tick'.
-     *
-     * CONVENCAO (vale para todo algoritmo do projeto):
-     *     valor MAIOR = tarefa MAIS prioritaria.
-     * Algoritmos em que "o menor ganha" trocam o sinal:
-     *     RM  -> -(periodo)         periodo menor     => valor maior
-     *     EDF -> -(deadline_abs)    deadline mais cedo => valor maior
-     *
-     * 'tick' existe para algoritmos cuja prioridade depende do instante
-     * atual. RM e EDF nao precisam dele e o ignoram.
-     *
-     * A funcao deve apenas CALCULAR: nao pode alterar a tarefa (por isso
-     * 'const') nem guardar estado entre chamadas. O mesmo (t, tick) tem que
-     * dar sempre o mesmo valor -- e disso que depende poder retroceder e
-     * avancar a simulacao com o mesmo resultado (requisito 1.5.2).
-     *
-     * Empates NAO sao problema do algoritmo: quando dois valores sao iguais,
-     * escalonador_ordenar aplica os criterios do requisito 4.3. */
+typedef struct {
+    char nome[16];        /* cópia: o nome pode vir digitado pelo usuário */
+    char descricao[64];
+    int  preemptivo;      /* 0 = quem está na CPU não é tirado por outra tarefa */
+    int  n_criterios;
+    Criterio criterios[MAX_CRITERIOS];
+    /* Opcional: algoritmo escrito em C. NULL = usa a lista de critérios. */
     long (*prioridade)(const TCB *t, int tick);
 } Escalonador;
 
-/* Acrescenta um algoritmo a tabela. Copia a struct, mas NAO os textos: so os
- * ponteiros 'nome' e 'descricao' sao copiados. Por isso eles precisam apontar
- * para memoria que dure o programa inteiro -- na pratica, strings literais.
- * Passar um buffer local deixaria a tabela apontando para lixo.
+/* Lê a definição de um algoritmo em texto (formato no topo deste arquivo)
+ * e o registra. Devolve 1 se registrou; 0 se recusou, com o porquê em
+ * 'motivo' (nome repetido, campo que nao existe, sem criterio...). */
+int escalonador_carregar_texto(const char *texto, char *motivo, int motivo_tam);
+
+/* Acrescenta um algoritmo ja montado a tabela, copiando a struct inteira
+ * (nome e descricao vao junto: sao vetores dentro dela). Uso normal:
+ * escalonador_carregar_texto, que valida antes de chamar esta.
  *
  * A tabela tem tamanho fixo; 'esc' NULL ou registro alem do limite e
  * ignorado em silencio. */
 void escalonador_registrar(const Escalonador *esc);
 
-/* Registra os algoritmos que acompanham o simulador (RM e EDF, requisito 4).
+/* Registra os algoritmos que acompanham o simulador (RM e EDF, requisito 4),
+ * pelo mesmo texto que o usuario usaria.
  * Tem que ser chamada antes de qualquer escalonador_buscar -- o main.c faz
  * isso na primeira linha. */
 void escalonador_registrar_padroes(void);

@@ -134,15 +134,21 @@ int diagnostico_json(const Diagnostico *d, char *buf, size_t tam)
 
 /* -------------------------------- estado --------------------------------- */
 
-/* Uma CPU:  {"id":0,"tarefa":3,"ticks_desligada":2}
+/* Uma CPU:  {"id":0,"tarefa":"t06","ticks_desligada":2}
  * Na struct, CPU.tarefa é a POSIÇÃO no vetor de tarefas; a página espera o
- * ID da tarefa (o número que o usuário escreveu no arquivo), ou -1 se a CPU
- * está desligada. */
+ * ID da tarefa (o texto que o usuário escreveu no arquivo), ou null se a
+ * CPU está desligada.
+ * null, e não um texto como "-1": o id agora é texto livre, e qualquer
+ * valor "reservado" poderia ser o id de uma tarefa de verdade. O null do
+ * JSON não é texto, então nunca se confunde com um id. */
 static void sai_cpu(Saida *s, const Estado *e, const CPU *c)
 {
-    int id_tarefa = (c->tarefa < 0) ? -1 : e->tarefas[c->tarefa].id;
-    sai(s, "{\"id\":%d,\"tarefa\":%d,\"ticks_desligada\":%d}",
-        c->id, id_tarefa, c->ticks_desligada);
+    sai(s, "{\"id\":%d,\"tarefa\":", c->id);
+    if (c->tarefa < 0)
+        sai(s, "null");
+    else
+        sai_texto(s, e->tarefas[c->tarefa].id);
+    sai(s, ",\"ticks_desligada\":%d}", c->ticks_desligada);
 }
 
 /* Uma tarefa, com todos os campos do TCB que a página mostra. */
@@ -150,7 +156,11 @@ static void sai_tarefa(Saida *s, const TCB *t)
 {
     /* %02X = dois dígitos hexadecimais com zero à esquerda: 255,0,10 vira
      * "#FF000A", o formato de cor do CSS. */
-    sai(s, "{\"id\":%d,\"cor\":\"#%02X%02X%02X\",", t->id, t->r, t->g, t->b);
+    /* O id é texto: sai entre aspas, pelo sai_texto (o mesmo caminho dos
+     * outros textos que vêm do arquivo). */
+    sai(s, "{\"id\":");
+    sai_texto(s, t->id);
+    sai(s, ",\"cor\":\"#%02X%02X%02X\",", t->r, t->g, t->b);
     sai(s, "\"ingresso\":%d,\"duracao\":%d,\"periodo\":%d,\"prazo\":%d,",
         t->ingresso, t->duracao, t->periodo, t->prazo);
     /* estado_nome só devolve palavras fixas (INATIVA, PRONTA...): não

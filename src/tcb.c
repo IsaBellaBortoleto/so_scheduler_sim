@@ -20,6 +20,7 @@
 
 #include <stdlib.h>
 #include <string.h>
+#include <ctype.h>
 
 /* Copia PROFUNDA de um Estado: os campos simples e tambem o conteudo dos
  * vetores de tarefas e de CPUs. Se faltar memoria, o vetor que falhou volta
@@ -99,4 +100,46 @@ const char *estado_nome(EstadoTarefa e)
      * cairia aqui: devolve um texto em vez de lixo, e o -Wall nao reclama
      * de funcao sem return. */
     return "DESCONHECIDO";
+}
+
+/* ORDEM NATURAL entre dois ids (ver tcb.h). Anda nos dois textos ao mesmo
+ * tempo e, a cada passo, há dois casos:
+ *   - os dois estão num NÚMERO: lê o número inteiro de cada lado (strtol)
+ *     e compara os valores -- é o que põe "t2" antes de "t10";
+ *   - senão: compara uma letra de cada, em maiúscula (req. 3.3.2).
+ * O primeiro trecho diferente decide. */
+int id_comparar(const char *a, const char *b)
+{
+    const char *ia = a, *ib = b;
+    while (*ia && *ib)
+    {
+        if (isdigit((unsigned char)*ia) && isdigit((unsigned char)*ib))
+        {
+            /* strtol devolve o número e deixa em fa/fb onde ele acabou. */
+            char *fa, *fb;
+            long na = strtol(ia, &fa, 10), nb = strtol(ib, &fb, 10);
+            if (na != nb)
+                return (na < nb) ? -1 : 1;
+            ia = fa;
+            ib = fb;
+        }
+        else
+        {
+            /* O cast para unsigned char é exigência do toupper/isdigit:
+             * com char negativo (letra acentuada) o comportamento é
+             * indefinido. */
+            int ca = toupper((unsigned char)*ia), cb = toupper((unsigned char)*ib);
+            if (ca != cb)
+                return ca - cb;
+            ia++;
+            ib++;
+        }
+    }
+    if (*ia != *ib)
+        return *ia ? 1 : -1; /* um acabou antes: o mais curto vem primeiro */
+    /* Iguais na ordem natural mas escritos diferente ("t01" x "t1", "T1" x
+     * "t1"): o strcmp só garante que a resposta seja sempre a mesma. No
+     * simulador isso quase não acontece, porque o config.c recusa ids que
+     * só diferem por maiúsculas. */
+    return strcmp(a, b);
 }

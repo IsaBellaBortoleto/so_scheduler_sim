@@ -1,0 +1,28 @@
+ARQUIVOS DE TESTE DOS AJUSTES PEDIDOS NA DEFESA DO PROJETO A
+============================================================
+
+AJUSTE 2 - ID DA TAREFA EM TEXTO (ex. "t06")
+--------------------------------------------
+"Observado" = resultado em 13/11/2026.
+
+id_texto.txt                     ids t10, t2, BS_01, t1 e 7, fora de ordem
+                                 observado: carrega sem erro; eixo Y do Gantt,
+                                 de baixo para cima: T7, BS_01, t1, t2, t10
+                                 (ordem natural: t2 antes de t10); editar com
+                                 o id "T10" altera a tarefa "t10"; termina no
+                                 tick 109
+
+erro_id_repetido_maiusculas.txt  'linha 5: id "T06" repetido (ja usado por "t06")'
+
+erro_id_invalido.txt             tres erros, um por linha ruim:
+                                 'linha 6: id vazio'
+                                 'linha 7: id "t 1" so pode ter letras, numeros,
+                                 '_' e '-''
+                                 'linha 8: id "abcdefghijklmnop" passa de 15
+                                 caracteres'
+
+REGRESSAO DO PROJETO A (tests/projeto_a), conferida em 13/11/2026 depois do
+ajuste: os 18 arquivos 01 a 16 terminam nos mesmos ticks de antes (282, 922,
+2748, 93, 111, 7250, 183...). O sorteio agora mistura as LETRAS dos ids, entao
+QUAL tarefa ganha um sorteio pode ser diferente do que era com ids numericos
+(arquivos 02 e 05); o resultado continua igual a cada execucao.
