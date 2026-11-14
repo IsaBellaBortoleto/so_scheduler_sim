@@ -955,7 +955,7 @@ static void teste_estado_json(void)
 
     /* Antes de carregar um arquivo: Estado valido, com as listas vazias. */
     memset(&s, 0, sizeof s);
-    assert(estado_json_atual(&s, buf, sizeof buf) == (int)strlen(buf));
+    assert(estado_json_com_avisos(&s, NULL, buf, sizeof buf) == (int)strlen(buf));
     assert(strcmp(buf, "{\"carregado\":false,\"tick\":0,\"terminada\":false,"
                        "\"algoritmo\":\"\",\"quantum\":0,\"ncpus\":0,"
                        "\"ultimo_evento\":\"\",\"cpus\":[],\"tarefas\":[],"
@@ -966,7 +966,7 @@ static void teste_estado_json(void)
     /* Depois de carregar: cabecalho, cor no formato do CSS, e o texto de
      * 'eventos' (que vem do arquivo) com as aspas escapadas. */
     iniciar_de_texto(&s, "edf;3;2\n7;FF000A;0;2;5;4;ev \"x\"\n8;;1;1;6");
-    assert(estado_json_atual(&s, buf, sizeof buf) == (int)strlen(buf));
+    assert(estado_json_com_avisos(&s, NULL, buf, sizeof buf) == (int)strlen(buf));
     assert(strstr(buf, "{\"carregado\":true,\"tick\":0,\"terminada\":false,"
                        "\"algoritmo\":\"EDF\",\"quantum\":3,\"ncpus\":2,") == buf);
     assert(strstr(buf, "{\"id\":\"7\",\"cor\":\"#FF000A\",\"ingresso\":0,\"duracao\":2,"
@@ -979,15 +979,15 @@ static void teste_estado_json(void)
      * de id 7 esta na posicao 0. A atribuicao e feita a mao aqui, porque
      * distribuir CPUs e trabalho da escalonar(), que e de outro card. */
     s.atual.cpus[1].tarefa = 0;
-    assert(estado_json_atual(&s, buf, sizeof buf) > 0);
+    assert(estado_json_com_avisos(&s, NULL, buf, sizeof buf) > 0);
     assert(strstr(buf, "{\"id\":1,\"tarefa\":\"7\",") != NULL);
     s.atual.cpus[1].tarefa = -1;
     /* CPU sem tarefa: null, e nao um texto que poderia ser o id de alguem. */
-    assert(estado_json_atual(&s, buf, sizeof buf) > 0);
+    assert(estado_json_com_avisos(&s, NULL, buf, sizeof buf) > 0);
     assert(strstr(buf, "{\"id\":1,\"tarefa\":null,") != NULL);
 
     /* Buffer pequeno: -1 e NADA pela metade (contrato de estado_json.h). */
-    assert(estado_json_atual(&s, pequeno, sizeof pequeno) == -1);
+    assert(estado_json_com_avisos(&s, NULL, pequeno, sizeof pequeno) == -1);
     assert(pequeno[0] == '\0');
     sim_liberar(&s);
 
@@ -1017,7 +1017,7 @@ static void teste_estado_json(void)
         assert(strstr(buf, "{\"id\":\"1\",") != NULL && strstr(buf, "{\"id\":\"2\",") == NULL);
 
         /* Sem diagnostico (as outras rotas): o campo nem aparece. */
-        assert(estado_json_atual(&s, buf, sizeof buf) > 0);
+        assert(estado_json_com_avisos(&s, NULL, buf, sizeof buf) > 0);
         assert(strstr(buf, "\"avisos\"") == NULL);
         sim_liberar(&s);
     }

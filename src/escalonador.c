@@ -15,9 +15,7 @@
  *  - Empate: 5 critérios em cascata, em comparar_sem_sorteio.    [req. 4.3]
  * ==========================================================================*/
 #include "escalonador.h"
-#include "config.h" /* str_igual_ci */
-
-#include <ctype.h>
+#include "config.h" /* str_igual_ci, trim, str_maiuscula */
 #include <stddef.h>
 #include <stdio.h>
 #include <string.h>
@@ -198,28 +196,12 @@ static int comparar_sem_sorteio(const Escalonador *esc, const TCB *a, const TCB 
     return 0; // empate em todos os critérios
 }
 
-/* Verdadeiro se as duas empatam em tudo antes do sorteio.
- * Serve para o Gantt marcar que a escolha foi decidida na sorte (4.3-5). */
-static int empate_ate_sorteio(const Escalonador *esc, const TCB *a, const TCB *b)
-{
-    return comparar_sem_sorteio(esc, a, b) == 0;
-}
-
 /* Decide qual de duas tarefas vem primeiro.
  * Se os critérios 0 a 4 decidiram (c diferente de 0), devolve c.
- * Se empatou em tudo (c igual a 0), quem decide é o sorteio. */
+ * Se empatou em tudo (c igual a 0), quem decide é o sorteio (critério 5). */
 static int comparar(const Escalonador *esc, const TCB *a, const TCB *b, int tick)
 {
-    /* Invoca a Árvore de Decisão em Cascata (Critérios 0 a 4). 
-     * Guarda o resultado matemático (-1, 1 ou 0) na variável local 'c'. */
     int c = comparar_sem_sorteio(esc, a, b);
-    /** Lógica do Operador Ternário ( c ? c : sorteio(...) ):
-     * - Se 'c' for diferente de zero (-1 ou 1), a expressão avalia como TRUE. 
-     *   Devolve imediatamente 'c' e a função 'sorteio' NEM SEQUER É EXECUTADA 
-     *   (Short-Circuit Evaluation), poupando ciclos de CPU.
-     * - Se 'c' for exatamente 0 (Empate Perfeito), a expressão avalia como FALSE.
-     *   Devolve então o resultado da função 'sorteio', forçando o desempate
-     *   matemático pelo hash FNV-1a (Critério 5). */
     return c ? c : sorteio(tick, a->id, b->id);
 }
 
@@ -267,7 +249,7 @@ void escalonador_ordenar(const Escalonador *esc, Estado *e, int *indices, int n)
         for (int i = e->ncpus - 1; i >= 0; i--)
         {
             TCB *com_vaga = &e->tarefas[indices[i]];
-            if (!empate_ate_sorteio(esc, com_vaga, de_fora))
+            if (comparar_sem_sorteio(esc, com_vaga, de_fora) != 0)
                 break;
             com_vaga->sorteada = 1;
         }
@@ -276,8 +258,8 @@ void escalonador_ordenar(const Escalonador *esc, Estado *e, int *indices, int n)
 
 /* ------------------- algoritmo definido pelo usuário --------------------- */
 
-/* Corta 'p' no próximo ';', tira espaços das pontas do pedaço cortado e
- * devolve o começo do campo seguinte (NULL se não houver). */
+/* Corta 'p' no próximo ';' e devolve o pedaço cortado, aparado (trim, de
+ * config.c). *p passa a apontar o campo seguinte (NULL se não houver). */
 static char *cortar(char **p)
 {
     char *ini = *p, *fim;
@@ -285,10 +267,7 @@ static char *cortar(char **p)
     fim = strchr(ini, ';');
     *p = fim ? fim + 1 : NULL;
     if (fim) *fim = '\0';
-    while (*ini == ' ' || *ini == '\t') ini++;
-    fim = ini + strlen(ini);
-    while (fim > ini && (fim[-1] == ' ' || fim[-1] == '\t' || fim[-1] == '\r')) *--fim = '\0';
-    return ini;
+    return trim(ini);
 }
 
 /* Lê a definição de um algoritmo e o registra na tabela. É o único caminho
@@ -338,8 +317,7 @@ int escalonador_carregar_texto(const char *texto, char *motivo, int tam)
             if (str_igual_ci(c3, "sim")) novo.preemptivo = 1;
             else if (str_igual_ci(c3, "nao")) novo.preemptivo = 0;
             else { snprintf(motivo, tam, "Preemptivo deve ser 'sim' ou 'nao' (veio '%s').", c3); return 0; }
-            for (char *q = c1; *q; q++)                /* guarda em maiúsculas, como "RM" */
-                *q = (char)toupper((unsigned char)*q);
+            str_maiuscula(c1);                         /* guarda em maiúsculas, como "RM" */
             strcpy(novo.nome, c1);                     /* cabe: tamanho conferido acima */
             cabecalho_lido = 1;
             continue;

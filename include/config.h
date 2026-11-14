@@ -68,4 +68,9 @@ int str_igual_ci(const char *a, const char *b);
  * arquivo e pela edicao de tarefas (kernel.c). */
 int ler_inteiro(const char *txt, int *saida);
 
+/* Tira espacos/tabs/'\r' das pontas, no lugar; USE O RETORNO. */
+char *trim(char *s);
+/* Converte para maiusculas no lugar (so ASCII). NULL e ignorado. */
+void str_maiuscula(char *s);
+
 #endif

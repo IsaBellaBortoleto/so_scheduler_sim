@@ -116,7 +116,7 @@ int str_igual_ci(const char *a, const char *b)
  *
  * Aparar a linha não apara os campos: em " 1 ; 5 " sobram "1 " e " 5" depois
  * do split. Por isso o trim é chamado de novo em CADA campo. */
-static char *trim(char *s)
+char *trim(char *s)
 {
     /* Fim primeiro: anda de trás para frente trocando cada espaço por '\0'.
      * O tam > 0 vem antes para nunca ler s[-1] numa string vazia. */
@@ -144,7 +144,7 @@ static char *trim(char *s)
  * "Rm" e "RM" são o mesmo algoritmo). NULL é ignorado.
  * Só letras ASCII mudam; bytes de letras acentuadas em UTF-8 ficam como
  * estão. O cast para unsigned char é pelo mesmo motivo do str_igual_ci. */
-static void str_maiuscula(char *s)
+void str_maiuscula(char *s)
 {
     if (s == NULL)
         return;
@@ -223,21 +223,6 @@ int ler_inteiro(const char *txt, int *saida)
     return 1;
 }
 
-/* Converte o texto de um campo em número.
- * Campo vazio => devolve 'padrao', sem erro (req. 3.2).
- * Texto ruim => devolve 0 e põe 0 em *ok. */
-static int campo_int(const char *txt, int padrao, int *ok)
-{
-    int valor = 0;
-
-    *ok = 1;
-    if (*txt == '\0')
-        return padrao;
-
-    *ok = ler_inteiro(txt, &valor);
-    return valor;
-}
-
 /* Converte "F0E0D0" em três componentes RGB.
  * Requisito 3.3: "cor é cor que identifica a execução da tarefa no formato
  * RGB em Hexadecimal, p.ex. 'F0E0D0' indica Red=F0, Green=E0, Blue=D0".
@@ -288,16 +273,17 @@ static int campo_cor(const char *txt, TCB *t)
  * split_campos), então nenhum evento é perdido. */
 #define MAX_CAMPOS 7
 
-/* campo_int + mensagem de erro pronta: o valor tem que ser um inteiro
- * >= minimo. Em caso de erro registra o diagnóstico e zera *ok (nunca põe 1:
+/* Converte o texto de um campo em número, que tem que ser um inteiro
+ * >= minimo. Campo vazio => devolve 'padrao', sem erro (req. 3.2).
+ * Em caso de erro registra o diagnóstico e zera *ok (nunca põe 1:
  * assim vários campos da mesma linha acumulam no mesmo *ok).
  * A mensagem diz a linha, o campo, o que foi lido e o que era esperado
  * (req. 3.3.6). */
 static int campo_int_min(Diagnostico *d, int linha, const char *nome,
                          const char *txt, int padrao, int minimo, int *ok)
 {
-    int leu;
-    int valor = campo_int(txt, padrao, &leu);
+    int valor = padrao;
+    int leu = (*txt == '\0') || ler_inteiro(txt, &valor);
 
     /* Dois motivos de erro: não é número ("abc"), ou é número mas abaixo
      * do mínimo (ex.: duração 0, período -5). */

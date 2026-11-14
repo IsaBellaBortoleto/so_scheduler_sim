@@ -9,8 +9,8 @@
  * interrupção e o núcleo trata essa interrupção:
  *
  *    sim_avancar()
- *      relogio_avancar()       tick++ : o ÚNICO lugar em que o tempo anda
- *        tratar_tick()         a "interrupção do relógio":
+ *      tratar_tick()           a "interrupção do relógio":
+ *          tick++              o ÚNICO lugar em que o tempo anda
  *          executar()          quem está na CPU trabalha 1 unidade
  *          verificar_prazos()  quem passou do deadline é marcado (req. 3.3)
  *          ativar()            periódicas que vencem agora viram PRONTAS
@@ -45,7 +45,7 @@
  * e na saída (JSON, Gantt). Devolve -1 se o ID não existe.
  * str_igual_ci: "T06" acha "t06" (req. 3.3.2). Busca simples, uma por uma:
  * com ~190 tarefas e uma busca por clique, não vale nada mais elaborado. */
-int sim_indice_por_id(const Estado *e, const char *id)
+static int sim_indice_por_id(const Estado *e, const char *id)
 {
     for (int i = 0; i < e->ntarefas; i++)
     {
@@ -87,6 +87,21 @@ static void soltar_cpu(Estado *e, TCB *t)
 {
     e->cpus[t->cpu].tarefa = -1;
     t->cpu = -1;
+}
+
+/* Preempção: tira da CPU e devolve à fila de prontas. */
+static void devolver_a_fila(Estado *e, TCB *t)
+{
+    soltar_cpu(e, t);
+    t->estado = EST_PRONTA;
+}
+
+/* Troca a foto do tick atual pela versão nova de s->atual (edição, CPUs,
+ * algoritmo no tick 0): o Gantt e o retroceder leem o histórico. */
+static void refazer_foto(Simulacao *s)
+{
+    estado_liberar(&s->historico[s->n_hist - 1]);
+    s->historico[s->n_hist - 1] = estado_clonar(&s->atual);
 }
 
 /* ------------------------------- histórico ------------------------------- */
@@ -216,7 +231,15 @@ static void ativar(Simulacao *s)
  * aplica os critérios de desempate do requisito 4.3, dando vantagem a quem
  * já estava executando só como critério de desempate, não como prioridade
  * absoluta). */
-static void contar_cpus_desligadas(Estado *e);
+
+/* OCIOSIDADE (req. 1.2) — mais um tick desligada para cada CPU vazia.
+ * Passo 6 de escalonar(), e chamada direto em tick sem evento. */
+static void contar_cpus_desligadas(Estado *e)
+{
+    for (int c = 0; c < e->ncpus; c++)
+        if (e->cpus[c].tarefa == -1)
+            e->cpus[c].ticks_desligada++;
+}
 
 static void escalonar(Simulacao *s)
 {
@@ -241,7 +264,7 @@ static void escalonar(Simulacao *s)
     }
 
     /* 2) Ordenar a lista usando o escalonador atual */
-    if (n_candidatos > 0 && s->esc != NULL) 
+    if (n_candidatos > 0)
     {
         escalonador_ordenar(s->esc, e, candidatos, n_candidatos);
     }
@@ -256,11 +279,7 @@ static void escalonar(Simulacao *s)
     {
         TCB *t = &e->tarefas[candidatos[j]];
         if (t->estado == EST_EXECUTANDO)
-        {
-            // Libera a CPU e volta a tarefa para a fila
-            soltar_cpu(e, t);
-            t->estado = EST_PRONTA;
-        }
+            devolver_a_fila(e, t);
     }
 
     /* 5) Acomodar os vencedores que ainda não têm CPU */
@@ -286,15 +305,6 @@ static void escalonar(Simulacao *s)
 
     /* 6) Contabilizar a ociosidade das CPUs que sobraram sem ninguém */
     contar_cpus_desligadas(e);
-}
-
-/* OCIOSIDADE (req. 1.2) — mais um tick desligada para cada CPU vazia.
- * Passo 6 de escalonar(), e chamada direto em tick sem evento. */
-static void contar_cpus_desligadas(Estado *e)
-{
-    for (int c = 0; c < e->ncpus; c++)
-        if (e->cpus[c].tarefa == -1)
-            e->cpus[c].ticks_desligada++;
 }
 
 /* EXECUÇÃO — consome uma unidade de tempo de cada tarefa que está na CPU,
@@ -441,10 +451,13 @@ int sim_iniciar(Simulacao *s, Estado *inicial, Diagnostico *d)
 }
 
 /* TRATADOR DO TICK — a "interrupção" do relógio: VERIFICA sempre (executar,
- * prazos e chegadas levantam s->precisa_escalonar) e AGE só se preciso. */
+ * prazos e chegadas levantam s->precisa_escalonar) e AGE só se preciso.
+ * RELÓGIO GLOBAL (req. 1.1): o tick++ daqui é o ÚNICO do código. Como o
+ * timer de um computador, o tempo anda e "interrompe" o núcleo. */
 static void tratar_tick(Simulacao *s)
 {
-    executar(s);          /* contabiliza o intervalo que acabou          */
+    s->atual.tick++;      /* o tempo anda...                             */
+    executar(s);         /* contabiliza o intervalo que acabou          */
     verificar_prazos(s);  /* marca quem estourou o prazo                 */
     ativar(s);            /* chegadas deste tick                         */
 
@@ -460,14 +473,6 @@ static void tratar_tick(Simulacao *s)
     }
     else
         contar_cpus_desligadas(&s->atual);
-}
-
-/* RELÓGIO GLOBAL DO SISTEMA (req. 1.1): o ÚNICO tick++ do código. Como o
- * timer de um computador, só faz o tempo andar e "interrompe" o núcleo. */
-static void relogio_avancar(Simulacao *s)
-{
-    s->atual.tick++;   /* o tempo anda...                                */
-    tratar_tick(s);    /* ...e gera a "interrupção" do tick              */
 }
 
 /* AVANÇAR (req. 1.5, modo passo a passo) — executa UM tick do relógio.
@@ -496,7 +501,7 @@ int sim_avancar(Simulacao *s)
 
     /* Um tick: o relógio anda e o tratador do tick faz o resto (ordem
      * explicada no topo do arquivo). */
-    relogio_avancar(s);
+    tratar_tick(s);
 
     /* Fim natural (req. 4.4): todas as tarefas completaram as 10 execuções.
      * São duas mensagens diferentes de propósito: "concluída" aqui e
@@ -684,11 +689,7 @@ static int aplicar_edicao(Simulacao *s, const char *id_tarefa, const char *campo
         /* Saindo da CPU: solta dos DOIS lados (a CPU guarda a tarefa e a
          * tarefa guarda a CPU), senão a CPU ficaria ocupada por ninguém. */
         if (tarefa->estado == EST_EXECUTANDO)
-        {
-            if (tarefa->cpu >= 0 && tarefa->cpu < s->atual.ncpus)
-                s->atual.cpus[tarefa->cpu].tarefa = -1;
-            tarefa->cpu = -1;
-        }
+            soltar_cpu(&s->atual, tarefa);
 
         /* INATIVA -> PRONTA é uma chegada antecipada: precisa de tempo
          * restante, prazo novo etc. Só trocar o estado faria a tarefa rodar
@@ -846,8 +847,7 @@ int sim_editar_tarefa(Simulacao *s, const char *id_tarefa, const char *campo,
     /* Troca a foto do tick atual pela versão editada: o Gantt é desenhado
      * a partir do histórico, e sem isto a edição não apareceria nele.
      * Libera a foto velha e guarda uma CÓPIA da nova, como em retroceder. */
-    estado_liberar(&s->historico[s->n_hist - 1]);
-    s->historico[s->n_hist - 1] = estado_clonar(&s->atual);
+    refazer_foto(s);
 
     /* O limite de ticks foi calculado em sim_iniciar com os períodos e as
      * durações do arquivo. Uma edição que os aumenta empurra o fim natural
@@ -906,11 +906,7 @@ int sim_alterar_cpus(Simulacao *s, int n, char *motivo, int motivo_tam)
     for (int c = n; c < antigas; c++)
     {
         if (e->cpus[c].tarefa >= 0)
-        {
-            TCB *t = &e->tarefas[e->cpus[c].tarefa];
-            soltar_cpu(e, t);
-            t->estado = EST_PRONTA;
-        }
+            devolver_a_fila(e, &e->tarefas[e->cpus[c].tarefa]);
     }
 
     /* 3) O vetor muda de tamanho. */
@@ -942,8 +938,7 @@ int sim_alterar_cpus(Simulacao *s, int n, char *motivo, int motivo_tam)
     escalonar(s);
 
     /* 6) A foto do tick atual passa a ser a nova (Gantt e retroceder). */
-    estado_liberar(&s->historico[s->n_hist - 1]);
-    s->historico[s->n_hist - 1] = estado_clonar(e);
+    refazer_foto(s);
     snprintf(s->ultimo_evento, sizeof s->ultimo_evento,
              "CPUs alteradas de %d para %d no tick %d", antigas, n, e->tick);
     return 1;
@@ -966,9 +961,6 @@ void sim_liberar(Simulacao *s)
         estado_liberar(&s->historico[i]);
     }
     free(s->historico); /* free(NULL) é permitido: não faz nada */
-    s->historico = NULL;
-    s->n_hist = 0;
-    s->cap_hist = 0;
     estado_liberar(&s->atual);
 
     /* Zera o resto (escalonador, terminada, último evento). Sem isto 'esc'
@@ -1052,18 +1044,13 @@ int sim_trocar_algoritmo(Simulacao *s, const char *nome,
         for (int i = 0; i < e->ntarefas; i++)
         {
             if (e->tarefas[i].estado == EST_EXECUTANDO)
-            {
-                soltar_cpu(e, &e->tarefas[i]);
-                e->tarefas[i].estado = EST_PRONTA;
-            }
+                devolver_a_fila(e, &e->tarefas[i]);
         }
         for (int c = 0; c < e->ncpus; c++)
             e->cpus[c].ticks_desligada = 0;
         escalonar(s);
 
-        /* No tick 0 a última foto é a única: historico[0]. */
-        estado_liberar(&s->historico[s->n_hist - 1]);
-        s->historico[s->n_hist - 1] = estado_clonar(e);
+        refazer_foto(s); /* no tick 0 a última foto é a única: historico[0] */
         snprintf(s->ultimo_evento, sizeof s->ultimo_evento,
                  "algoritmo trocado para %s antes do inicio: vale desde o tick 0",
                  esc->nome);

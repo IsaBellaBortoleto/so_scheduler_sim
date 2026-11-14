@@ -61,20 +61,14 @@ Estado estado_clonar(const Estado *e)
 }
 
 /* Libera os vetores de um Estado e o deixa zerado. Pode ser chamada duas
- * vezes sobre o mesmo Estado: na segunda os ponteiros ja sao NULL, e nada e
- * liberado de novo (liberar a mesma memoria duas vezes derruba o programa). */
+ * vezes sobre o mesmo Estado: na segunda os ponteiros ja sao NULL, e
+ * free(NULL) nao faz nada. */
 void estado_liberar(Estado *e)
 {
-    if (e->tarefas != NULL)
-    {
-        free(e->tarefas);
-        e->tarefas = NULL;
-    }
-    if (e->cpus != NULL)
-    {
-        free(e->cpus);
-        e->cpus = NULL;
-    }
+    free(e->tarefas);
+    free(e->cpus);
+    e->tarefas = NULL;
+    e->cpus = NULL;
     e->ntarefas = 0;
     e->ncpus = 0;
 }

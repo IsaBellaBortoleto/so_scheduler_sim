@@ -295,6 +295,21 @@ static void responder_erros(soquete_t c, const Diagnostico *d)
 {
     responder_json(c, diagnostico_json(d, json, sizeof json), "erros demais para listar");
 }
+
+/* Fim comum das rotas que o núcleo pode recusar: aceita -> o estado novo
+ * (a página se redesenha); recusada -> o motivo, no formato de erro do
+ * carregamento. "%s" e não o motivo como formato: ele traz texto do
+ * usuário, e um '%' digitado seria lido como formato do printf. */
+static void responder_resultado(Simulacao *sim, soquete_t c, int ok, const char *motivo)
+{
+    if (ok)
+    {
+        responder_estado(sim, c, NULL);
+        return;
+    }
+    diag_erro(&diag, "%s", motivo);
+    responder_erros(c, &diag);
+}
 /* Arquivo de texto só tem caracteres visíveis e as quebras de linha
  * (\n, \r, \t). Byte zero ou outro caractere de controle (< 0x20) é sinal
  * de arquivo binário: imagem, executável... (checklist da defesa).
@@ -353,7 +368,8 @@ static void rota_editar(Simulacao *sim, soquete_t c, const Pedido *p)
 {
     char id[MAX_ID]; /* id da tarefa em texto; o 15 do sscanf é MAX_ID - 1 */
     char campo[32], valor[64];
-    char motivo[MAX_DIAG_TXT]; /* sim_editar_tarefa escreve aqui o porquê */
+    /* sim_editar_tarefa escreve aqui o porquê de uma recusa. */
+    char motivo[MAX_DIAG_TXT] = "pedido de edicao mal formado";
 
     /* O corpo chega como {"id":"t06","campo":"estado","valor":"pronta"}.
      * O id é TEXTO, entre aspas, como os outros dois campos.
@@ -365,43 +381,21 @@ static void rota_editar(Simulacao *sim, soquete_t c, const Pedido *p)
      * só lê o JSON exatamente nesta ordem e sem espaços, que é o
      * que o JSON.stringify da página gera. Outro cliente precisaria de um
      * leitor de JSON de verdade. */
-    if (p->corpo == NULL ||
+    responder_resultado(sim, c,
+        p->corpo != NULL &&
         sscanf(p->corpo, "{\"id\":\"%15[^\"]\",\"campo\":\"%31[^\"]\",\"valor\":\"%63[^\"]\"}",
-               id, campo, valor) != 3)
-    {
-        diag_erro(&diag, "pedido de edicao mal formado");
-    }
-    else if (sim_editar_tarefa(sim, id, campo, valor, motivo, sizeof motivo))
-    {
-        /* Aceita: a página recebe o estado novo e se redesenha. */
-        responder_estado(sim, c, NULL);
-        return;
-    }
-    else
-    {
-        /* "%s" e não o motivo direto como formato: ele contém texto do
-         * usuário, e um '%' digitado seria lido como formato do printf. */
-        diag_erro(&diag, "%s", motivo);
-    }
-    responder_erros(c, &diag);
+               id, campo, valor) == 3 &&
+        sim_editar_tarefa(sim, id, campo, valor, motivo, sizeof motivo),
+        motivo);
 }
 
 /* POST /api/algoritmo (req. 3.1): troca o algoritmo no meio da simulação.
  * O corpo é só o nome ("EDF"). Quem valida é o núcleo. */
 static void rota_algoritmo(Simulacao *sim, soquete_t c, const Pedido *p)
 {
-    char motivo[MAX_DIAG_TXT];
-
-    if (p->corpo == NULL)
-        diag_erro(&diag, "nenhum algoritmo informado");
-    else if (sim_trocar_algoritmo(sim, p->corpo, motivo, sizeof motivo))
-    {
-        responder_estado(sim, c, NULL);
-        return;
-    }
-    else
-        diag_erro(&diag, "%s", motivo); /* "%s": o motivo traz texto do usuário */
-    responder_erros(c, &diag);
+    char motivo[MAX_DIAG_TXT] = "nenhum algoritmo informado";
+    responder_resultado(sim, c, p->corpo != NULL &&
+        sim_trocar_algoritmo(sim, p->corpo, motivo, sizeof motivo), motivo);
 }
 
 /* POST /api/cpus (req. geral 2 e 3.1): muda a quantidade de CPUs com a
@@ -410,19 +404,10 @@ static void rota_algoritmo(Simulacao *sim, soquete_t c, const Pedido *p)
  * redistribui as tarefas é o núcleo (sim_alterar_cpus). */
 static void rota_cpus(Simulacao *sim, soquete_t c, const Pedido *p)
 {
-    char motivo[MAX_DIAG_TXT];
+    char motivo[MAX_DIAG_TXT] = "quantidade de CPUs invalida (esperado um numero inteiro)";
     int n;
-
-    if (p->corpo == NULL || !ler_inteiro(p->corpo, &n))
-        diag_erro(&diag, "quantidade de CPUs invalida (esperado um numero inteiro)");
-    else if (sim_alterar_cpus(sim, n, motivo, sizeof motivo))
-    {
-        responder_estado(sim, c, NULL);
-        return;
-    }
-    else
-        diag_erro(&diag, "%s", motivo);
-    responder_erros(c, &diag);
+    responder_resultado(sim, c, p->corpo != NULL && ler_inteiro(p->corpo, &n) &&
+        sim_alterar_cpus(sim, n, motivo, sizeof motivo), motivo);
 }
 
 /* POST /api/algoritmo_novo (req. 4.2): cria um algoritmo sem recompilar.
@@ -433,18 +418,9 @@ static void rota_cpus(Simulacao *sim, soquete_t c, const Pedido *p)
  * refaz o seletor. Não mexe na simulação em andamento. */
 static void rota_algoritmo_novo(Simulacao *sim, soquete_t c, const Pedido *p)
 {
-    char motivo[MAX_DIAG_TXT];
-
-    if (p->corpo == NULL)
-        diag_erro(&diag, "nenhuma definicao de algoritmo enviada");
-    else if (escalonador_carregar_texto(p->corpo, motivo, sizeof motivo))
-    {
-        responder_estado(sim, c, NULL);
-        return;
-    }
-    else
-        diag_erro(&diag, "%s", motivo); /* "%s": o motivo traz texto do usuário */
-    responder_erros(c, &diag);
+    char motivo[MAX_DIAG_TXT] = "nenhuma definicao de algoritmo enviada";
+    responder_resultado(sim, c, p->corpo != NULL &&
+        escalonador_carregar_texto(p->corpo, motivo, sizeof motivo), motivo);
 }
 
 /* GET /api/gantt e /api/exportar_svg (req. 2.3 e 2.4): o gráfico de Gantt
@@ -569,60 +545,41 @@ static void atender(Simulacao *sim, soquete_t c)
     /* As rotas, em ordem. A primeira que reconhecer o pedido responde; se
      * nenhuma reconhecer, é 404. Cada rota confere MÉTODO e CAMINHO. */
     if (get && servir_recurso(c, &p))
-    {
-        /* era um arquivo da página; servir_recurso já respondeu */
-    }
+        ; /* era a página; servir_recurso já respondeu */
     else if (get && strcmp(p.caminho, "/api/estado") == 0)
-    {
         responder_estado(sim, c, NULL);
-    }
     else if (post && strcmp(p.caminho, "/api/carregar") == 0)
-    {
         rota_carregar(sim, c, &p);
-    }
+    /* Os três comandos sem corpo: executam e devolvem o estado novo. */
     else if (post && strcmp(p.caminho, "/api/avancar") == 0)
     {
-        sim_avancar(sim);               // Executa um tick do relógio
-        responder_estado(sim, c, NULL); // Devolve o estado atualizado para a interface
+        sim_avancar(sim);
+        responder_estado(sim, c, NULL);
     }
     else if (post && strcmp(p.caminho, "/api/retroceder") == 0)
     {
-        sim_retroceder(sim);            // Volta no tempo
-        responder_estado(sim, c, NULL); // Devolve o estado atualizado para a interface
+        sim_retroceder(sim);
+        responder_estado(sim, c, NULL);
     }
     else if (post && strcmp(p.caminho, "/api/executar_tudo") == 0)
     {
-        sim_executar_tudo(sim);         // Roda a simulação inteira de uma vez
-        responder_estado(sim, c, NULL); // Devolve o resultado final para a interface
+        sim_executar_tudo(sim);
+        responder_estado(sim, c, NULL);
     }
     else if (post && strcmp(p.caminho, "/api/editar") == 0)
-    {
         rota_editar(sim, c, &p);
-    }
     else if (post && strcmp(p.caminho, "/api/algoritmo") == 0)
-    {
         rota_algoritmo(sim, c, &p);
-    }
     else if (post && strcmp(p.caminho, "/api/algoritmo_novo") == 0)
-    {
         rota_algoritmo_novo(sim, c, &p);
-    }
     else if (post && strcmp(p.caminho, "/api/cpus") == 0)
-    {
         rota_cpus(sim, c, &p);
-    }
     else if (get && strcmp(p.caminho, "/api/gantt") == 0)
-    {
         responder_svg(c, sim, 0);
-    }
     else if (get && strcmp(p.caminho, "/api/exportar_svg") == 0)
-    {
         responder_svg(c, sim, 1);
-    }
     else
-    {
         responder_texto(c, "404 Not Found", "rota inexistente");
-    }
 
     free(p.corpo); /* um só free, no fim: vale para todas as rotas */
 }

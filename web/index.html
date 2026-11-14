@@ -265,15 +265,7 @@
         color: var(--cor-texto-fraco);
       }
       #alg-previa {
-        margin: 0;
-        padding: 8px 12px;
         min-height: 48px;
-        background: var(--cor-fundo);
-        border: 1px solid var(--cor-borda);
-        border-radius: 6px;
-        font-family: ui-monospace, Consolas, monospace;
-        font-size: 12px;
-        white-space: pre-wrap;
       }
       .dlg-erro {
         min-height: 18px;
@@ -545,9 +537,10 @@
     <dialog id="dlg-algoritmo" aria-labelledby="dlg-algoritmo-titulo">
       <div class="dlg-cabecalho">
         <h2 id="dlg-algoritmo-titulo">Novo algoritmo</h2>
-        <button id="btn-alg-fechar" class="botao-discreto" aria-label="fechar">
-          &times;
-        </button>
+        <!-- form method="dialog": o botão fecha o diálogo sozinho, sem JS. -->
+        <form method="dialog">
+          <button class="botao-discreto" aria-label="fechar">&times;</button>
+        </form>
       </div>
 
       <!-- Caminho 1: quem já tem a definição num arquivo. O <input type="file">
@@ -601,11 +594,11 @@
       <!-- O texto que será enviado ao C: é o mesmo conteúdo de um .txt de
        algoritmo, então serve também para o usuário aprender o formato. -->
       <div class="dlg-rotulo">prévia do .txt</div>
-      <pre id="alg-previa"></pre>
+      <pre id="alg-previa" class="dlg-previa"></pre>
 
       <p id="alg-erro" class="dlg-erro" role="alert"></p>
       <div class="dlg-rodape">
-        <button id="btn-alg-cancelar">cancelar</button>
+        <form method="dialog"><button>cancelar</button></form>
         <button id="btn-alg-salvar" class="botao-principal">
           adicionar algoritmo
         </button>
@@ -625,9 +618,9 @@
     <dialog id="dlg-manual" aria-labelledby="dlg-manual-titulo">
       <div class="dlg-cabecalho">
         <h2 id="dlg-manual-titulo">Modo manual</h2>
-        <button id="btn-man-fechar" class="botao-discreto" aria-label="fechar">
-          &times;
-        </button>
+        <form method="dialog">
+          <button class="botao-discreto" aria-label="fechar">&times;</button>
+        </form>
       </div>
       <p class="dlg-ajuda">
         Monte a simulação sem arquivo. Os valores sugeridos podem ser trocados;
@@ -677,7 +670,7 @@
 
       <ul id="man-erros" class="lista-diagnostico erros" role="alert"></ul>
       <div class="dlg-rodape">
-        <button id="btn-man-cancelar">cancelar</button>
+        <form method="dialog"><button>cancelar</button></form>
         <button id="btn-man-carregar" class="botao-principal">
           carregar simulação
         </button>
@@ -900,35 +893,6 @@
 
         const $ = (sel) => document.querySelector(sel);
 
-        const els = {
-          infoAlgoritmo: $("#info-algoritmo"),
-          infoQuantum: $("#info-quantum"),
-          infoCpus: $("#info-cpus"),
-          infoTick: $("#info-tick"),
-          infoEstadoSim: $("#info-estado-sim"),
-          entradaArquivo: $("#entrada-arquivo"),
-          btnCarregar: $("#btn-carregar"),
-          btnRetroceder: $("#btn-retroceder"),
-          btnAvancar: $("#btn-avancar"),
-          btnExecutarTudo: $("#btn-executar-tudo"),
-          btnExportarSvg: $("#btn-exportar-svg"),
-          areaDiagnostico: $("#area-diagnostico"),
-          listaErros: $("#lista-erros"),
-          listaAvisos: $("#lista-avisos"),
-          imgGantt: $("#img-gantt"),
-          tabelaCpusBody: $("#tabela-cpus tbody"),
-          tabelaTarefasBody: $("#tabela-tarefas tbody"),
-          painelInspetor: $("#painel-inspetor"),
-          inspetorTituloId: $("#inspetor-titulo-id"),
-          formEditar: $("#form-editar"),
-          editarCampo: $("#editar-campo"),
-          editarValor: $("#editar-valor"),
-          inspetorMotivo: $("#inspetor-motivo"),
-          btnFecharInspetor: $("#btn-fechar-inspetor"),
-          textoUltimoEvento: $("#texto-ultimo-evento"),
-          selAlgoritmo: $("#sel-algoritmo"),
-        };
-
         /* ------------------------------ chamadas HTTP ---------------------------- */
         async function chamarApi(caminho, opcoes) {
           /* O ÚNICO lugar que conversa com o programa em C. Manda o pedido e
@@ -950,16 +914,9 @@
           } catch (e) {
             const motivo =
               "Sem resposta do simulador. Verifique se o programa continua aberto.";
-            return { erro: true, motivo, erros: [motivo], avisos: [] };
+            return { erro: true, erros: [motivo], avisos: [] };
           }
         }
-
-        const postJson = (caminho, corpo) =>
-          chamarApi(caminho, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: corpo ? JSON.stringify(corpo) : undefined,
-          });
 
         /* ------------------------------ ações da UI ------------------------------ */
 
@@ -974,10 +931,6 @@
            * "carregado": o if é falso e a página fica na tela inicial. */
           const resp = await chamarApi("/api/estado");
           if (resp && resp.carregado) {
-            /* Nesta ordem: primeiro liga os botões, depois aplicarNovoEstado
-             * desliga os que não fazem sentido (ex.: "avançar" numa simulação
-             * já terminada). Invertido, o segundo desfaria o primeiro. */
-            definirControlesHabilitados(true);
             aplicarNovoEstado(resp);
           } else if (resp && resp.algoritmos) {
             /* Nada carregado ainda: mesmo assim o seletor já lista os
@@ -996,7 +949,7 @@
 
           /* files[0] é o arquivo escolhido no seletor (<input type="file">). O
            * seletor é do sistema operacional: abre qualquer pasta ou pendrive. */
-          const arquivo = els.entradaArquivo.files[0];
+          const arquivo = $("#entrada-arquivo").files[0];
           if (!arquivo) {
             mostrarDiagnostico(
               ["Escolha um arquivo de configuração antes de carregar."],
@@ -1014,8 +967,8 @@
 
           /* Enquanto espera: botão desativado e com o texto "carregando...". O
            * usuário vê que o programa está trabalhando, e não clica duas vezes. */
-          els.btnCarregar.disabled = true;
-          els.btnCarregar.textContent = "carregando...";
+          $("#btn-carregar").disabled = true;
+          $("#btn-carregar").textContent = "carregando...";
 
           /* body: arquivo -> o navegador manda os BYTES do arquivo como estão no
            * disco. O C recebe o conteúdo, nunca um caminho: por isso funciona de
@@ -1024,8 +977,8 @@
             method: "POST",
             body: arquivo,
           });
-          els.btnCarregar.disabled = false;
-          els.btnCarregar.textContent = "carregar";
+          $("#btn-carregar").disabled = false;
+          $("#btn-carregar").textContent = "carregar";
 
           /* Arquivo com erro: mostra a lista e PARA. A tela continua com a
            * simulação anterior, que o servidor também manteve. */
@@ -1036,83 +989,58 @@
           /* Deu certo. Ainda pode haver avisos (ex.: tarefa aperiódica ignorada,
            * req. 4.4). O "|| []" cobre a resposta sem esse campo. */
           mostrarDiagnostico([], resp.avisos || []);
-          /* Liga os botões ANTES: aplicarNovoEstado desliga depois os que não
-           * fazem sentido (mesma ordem de aoAbrirPagina). */
-          definirControlesHabilitados(true);
           aplicarNovoEstado(resp);
+        }
+
+        /* Troca o conteúdo da lista <ul> por um <li> por mensagem (esvazia
+         * primeiro, senão as mensagens antigas se acumulam). textContent,
+         * NUNCA innerHTML: a mensagem traz pedaços do arquivo do usuário. Com
+         * innerHTML, um "<script>" escrito no arquivo seria executado pela
+         * página; com textContent vira só texto. */
+        function preencherLista(ul, mensagens) {
+          ul.innerHTML = "";
+          for (const msg of mensagens) {
+            const li = document.createElement("li");
+            li.textContent = msg;
+            ul.append(li);
+          }
         }
 
         function mostrarDiagnostico(erros, avisos) {
           /* Põe na tela as mensagens de erro e de aviso, um item por mensagem.
            * Chamar com duas listas vazias limpa e esconde a área. */
-
-          /* Esvazia primeiro, senão as mensagens antigas se acumulam. */
-          els.listaErros.innerHTML = "";
-          els.listaAvisos.innerHTML = "";
-          for (const msg of erros) {
-            const li = document.createElement("li");
-            /* textContent, NUNCA innerHTML: a mensagem traz pedaços do arquivo do
-             * usuário. Com innerHTML, um "<script>" escrito no arquivo seria
-             * executado pela página; com textContent vira só texto. */
-            li.textContent = msg;
-            els.listaErros.appendChild(li);
-          }
-
-          for (const msg of avisos) {
-            const li = document.createElement("li");
-            li.textContent = msg;
-            els.listaAvisos.appendChild(li);
-          }
+          preencherLista($("#lista-erros"), erros);
+          preencherLista($("#lista-avisos"), avisos);
           /* Sem nenhuma mensagem, a área inteira some. */
-          els.areaDiagnostico.hidden =
+          $("#area-diagnostico").hidden =
             erros.length === 0 && avisos.length === 0;
         }
 
-        /* Manda um comando ao C (avançar, retroceder, executar tudo) e redesenha
-         * a tela com o estado que volta. Os três botões fazem a MESMA coisa, só
-         * muda o endereço; por isso uma função só, chamada pelos três. */
-        async function comando(caminho) {
+        /* Manda um comando ao C e redesenha a tela com o estado que volta:
+         * avançar, retroceder e executar tudo (sem corpo), trocar o algoritmo
+         * (corpo = o nome) e mudar as CPUs (corpo = o número).
+         * Recusado (ou sem conexão): mostra o motivo e redesenha com o estado
+         * que a tela já tinha -- botões, seletor e campo de CPUs voltam ao que
+         * estava em vigor. */
+        async function comando(caminho, corpo) {
           /* Apaga as mensagens anteriores (ex.: avisos do carregamento). */
           mostrarDiagnostico([], []);
 
           /* Botões desligados enquanto espera: impede clique duplo e mostra que
            * o programa está trabalhando ("executar tudo" pode levar um instante).
-           * definirControlesHabilitados não mexe no retroceder, daí a 2a linha. */
-          definirControlesHabilitados(false);
-          els.btnRetroceder.disabled = true;
+           * aplicarNovoEstado liga de novo os que fizerem sentido. */
+          for (const b of ["#btn-avancar", "#btn-retroceder", "#btn-executar-tudo"])
+            $(b).disabled = true;
 
-          const resp = await postJson(caminho);
-
-          /* Liga tudo; logo abaixo aplicarNovoEstado desliga o que não fizer
-           * sentido no estado novo (mesma ordem de aoCarregar). */
-          definirControlesHabilitados(true);
-
-          /* A única falha aqui é perder a conexão com o programa. Mostra o
-           * motivo e redesenha com o estado que a tela já tinha, para os botões
-           * voltarem ao que eram. */
+          const resp = await chamarApi(caminho, { method: "POST", body: corpo });
           if (resp.erro) {
             mostrarDiagnostico(resp.erros || [], []);
-            aplicarNovoEstado(app.atual);
+            /* Sem simulação carregada app.atual é null: só o seletor volta. */
+            if (app.atual) aplicarNovoEstado(app.atual);
+            else atualizarSeletorAlgoritmos({});
             return;
           }
           aplicarNovoEstado(resp);
-        }
-
-        /* Um tick (modo passo a passo, req. 1.5). Avançar depois do fim não faz
-         * nada no C: ele devolve o mesmo estado. */
-        async function aoAvancar() {
-          await comando("/api/avancar");
-        }
-
-        /* Volta um tick, restaurado do histórico guardado no C (req. 1.5.2). */
-        async function aoRetroceder() {
-          await comando("/api/retroceder");
-        }
-
-        /* Execução completa (req. 1.5, modo b): UMA chamada. Os ticks do meio
-         * ficam no histórico do C, de onde o Gantt é desenhado. */
-        async function aoExecutarTudo() {
-          await comando("/api/executar_tudo");
         }
 
         function aoExportarSvg() {
@@ -1123,8 +1051,6 @@
           window.location.href = "/api/exportar_svg";
         }
 
-        /* Troca o algoritmo no meio da simulação (req. 3.1). Se o C recusar,
-         * mostra o motivo e o seletor volta ao algoritmo em vigor. */
         /* Valor da opção "+ novo algoritmo…" do seletor. Não pode ser confundido
          * com um algoritmo: nomes de algoritmo não têm '_' no começo nem
          * passam de 15 letras sem que o C aceite, e este valor nunca vai ao C. */
@@ -1141,55 +1067,29 @@
           app.algoritmos = lista;
           /* + 1 = a opção "+ novo algoritmo…". Só refaz quando a lista muda
            * de tamanho (o usuário criou um algoritmo). */
-          if (els.selAlgoritmo.options.length !== lista.length + 1) {
-            els.selAlgoritmo.innerHTML = "";
-            for (const nome of lista) els.selAlgoritmo.add(new Option(nome, nome));
-            els.selAlgoritmo.add(
+          if ($("#sel-algoritmo").options.length !== lista.length + 1) {
+            $("#sel-algoritmo").innerHTML = "";
+            for (const nome of lista) $("#sel-algoritmo").add(new Option(nome, nome));
+            $("#sel-algoritmo").add(
               new Option("+ novo algoritmo…", OPCAO_NOVO_ALGORITMO),
             );
           }
           /* Mostra o algoritmo em vigor: depois de carregar, de trocar e de
            * retroceder para antes de uma troca. Sem simulação, o primeiro. */
-          els.selAlgoritmo.value = estado.algoritmo || lista[0] || "";
+          $("#sel-algoritmo").value = estado.algoritmo || lista[0] || "";
         }
 
-        /* Muda a quantidade de CPUs (req. 3.1). Se o C recusar (0, texto,
-         * simulação terminada...), mostra o motivo e o campo volta ao valor
-         * em vigor. */
-        async function aoAlterarCpus() {
-          mostrarDiagnostico([], []);
-          const resp = await chamarApi("/api/cpus", {
-            method: "POST",
-            body: $("#ent-cpus").value,
-          });
-          if (resp.erro) {
-            mostrarDiagnostico(resp.erros || [], []);
-            aplicarNovoEstado(app.atual);
-            return;
-          }
-          aplicarNovoEstado(resp);
-        }
-
+        /* Troca o algoritmo no meio da simulação (req. 3.1). Se o C recusar,
+         * comando() mostra o motivo e o seletor volta ao algoritmo em vigor. */
         async function aoTrocarAlgoritmo() {
           /* Escolheu "+ novo algoritmo…": não é troca. O seletor volta a
            * mostrar o algoritmo em vigor e o diálogo de criação abre. */
-          if (els.selAlgoritmo.value === OPCAO_NOVO_ALGORITMO) {
+          if ($("#sel-algoritmo").value === OPCAO_NOVO_ALGORITMO) {
             atualizarSeletorAlgoritmos(app.atual || {});
             abrirNovoAlgoritmo();
             return;
           }
-          mostrarDiagnostico([], []);
-          const resp = await chamarApi("/api/algoritmo", {
-            method: "POST",
-            body: els.selAlgoritmo.value,
-          });
-          if (resp.erro) {
-            mostrarDiagnostico(resp.erros || [], []);
-            /* Sem simulação carregada app.atual é null: só o seletor volta. */
-            atualizarSeletorAlgoritmos(app.atual || {});
-            return;
-          }
-          aplicarNovoEstado(resp);
+          await comando("/api/algoritmo", $("#sel-algoritmo").value);
         }
 
         /* ------------------------------ novo algoritmo ---------------------------- */
@@ -1511,16 +1411,11 @@
             body: textoDaConfiguracao(),
           });
           if (resp.erro) {
-            for (const msg of resp.erros || []) {
-              const li = document.createElement("li");
-              li.textContent = msg; /* textContent: a mensagem traz texto digitado */
-              lista.append(li);
-            }
+            preencherLista(lista, resp.erros || []);
             return;
           }
           $("#dlg-manual").close();
           mostrarDiagnostico([], resp.avisos || []);
-          definirControlesHabilitados(true);
           aplicarNovoEstado(resp);
         }
 
@@ -1541,22 +1436,22 @@
               sugerirValor();
               /* Apaga a mensagem da edição anterior: ela falava de outro tick.
                * (A confirmação de uma edição é escrita DEPOIS desta função.) */
-              els.inspetorMotivo.textContent = "";
-              els.inspetorMotivo.classList.remove("ok");
+              $("#inspetor-motivo").textContent = "";
+              $("#inspetor-motivo").classList.remove("ok");
             } else fecharInspetor();
           }
           if (!estado) return;
 
           /* Cabeçalho. O rótulo vai junto ("algoritmo: RM") porque textContent
            * troca o texto INTEIRO do elemento. */
-          els.infoAlgoritmo.textContent = "algoritmo: " + estado.algoritmo;
-          els.infoQuantum.textContent = "quantum: " + estado.quantum;
-          els.infoCpus.textContent = "CPUs: " + estado.ncpus;
-          els.infoTick.textContent = "tick: " + estado.tick;
-          els.infoEstadoSim.textContent = estado.terminada
+          $("#info-algoritmo").textContent = "algoritmo: " + estado.algoritmo;
+          $("#info-quantum").textContent = "quantum: " + estado.quantum;
+          $("#info-cpus").textContent = "CPUs: " + estado.ncpus;
+          $("#info-tick").textContent = "tick: " + estado.tick;
+          $("#info-estado-sim").textContent = estado.terminada
             ? "concluída"
             : "em execução";
-          els.textoUltimoEvento.textContent = estado.ultimo_evento || "--";
+          $("#texto-ultimo-evento").textContent = estado.ultimo_evento || "--";
 
           /* Tabelas e Gantt: redesenhados a cada estado novo. */
 
@@ -1564,11 +1459,13 @@
           atualizarTabelaTarefas(estado);
           atualizarGantt();
 
-          /* Botões que não fariam nada ficam desativados: não há para onde
-           * retroceder no tick 0, nem o que avançar depois do fim. */
-          els.btnRetroceder.disabled = !(estado.tick > 0);
-          els.btnAvancar.disabled = estado.terminada;
-          els.btnExecutarTudo.disabled = estado.terminada;
+          /* Botões que não fariam nada ficam desativados: nada antes de
+           * carregar um arquivo (no HTML eles já começam com "disabled"), não
+           * há para onde retroceder no tick 0, nem o que avançar depois do fim. */
+          $("#btn-retroceder").disabled = !(estado.tick > 0);
+          $("#btn-avancar").disabled = !estado.carregado || estado.terminada;
+          $("#btn-executar-tudo").disabled = !estado.carregado || estado.terminada;
+          $("#btn-exportar-svg").disabled = !estado.carregado;
 
           /* Seletor de algoritmo: opções vindas do C + o algoritmo em vigor. */
           atualizarSeletorAlgoritmos(estado);
@@ -1578,16 +1475,6 @@
            * simulação carregada e ainda não terminada. */
           $("#ent-cpus").value = estado.carregado ? estado.ncpus : "";
           $("#ent-cpus").disabled = !estado.carregado || estado.terminada;
-        }
-
-        function definirControlesHabilitados(ligado) {
-          /* Liga ou desliga os botões que só servem com uma simulação carregada.
-           * No HTML eles começam desativados (atributo "disabled").
-           * "retroceder" fica de fora: quem cuida dele é aplicarNovoEstado, porque
-           * depende do tick (no tick 0 não há para onde voltar). */
-          els.btnAvancar.disabled = !ligado;
-          els.btnExecutarTudo.disabled = !ligado;
-          els.btnExportarSvg.disabled = !ligado;
         }
 
         /* Cria uma célula <td> com um texto e a pendura na linha <tr>. Usada pelas
@@ -1603,7 +1490,7 @@
           /* Tabela de CPUs: uma linha por processador, na ordem que o C mandou.
            * A tabela é REFEITA inteira a cada estado novo (esvazia e recria): é
            * mais simples do que descobrir o que mudou, e são poucas linhas. */
-          els.tabelaCpusBody.innerHTML = "";
+          $("#tabela-cpus tbody").innerHTML = "";
           for (const cpu of estado.cpus) {
             const tr = document.createElement("tr");
             celula(tr, cpu.id);
@@ -1613,7 +1500,7 @@
             /* cpu.tarefa é o id (texto) da tarefa, ou null = CPU sem tarefa. */
             celula(tr, cpu.tarefa === null ? "desligada" : cpu.tarefa);
             celula(tr, cpu.ticks_desligada);
-            els.tabelaCpusBody.appendChild(tr);
+            $("#tabela-cpus tbody").appendChild(tr);
           }
         }
 
@@ -1621,7 +1508,7 @@
           /* Tabela de tarefas: uma linha por tarefa, com o que o TCB guarda
            * dela neste tick (req. 1.5.1: examinar cada tarefa no passo a passo).
            * Com ~190 tarefas a tabela fica longa; o painel lateral rola. */
-          els.tabelaTarefasBody.innerHTML = "";
+          $("#tabela-tarefas tbody").innerHTML = "";
           for (const tarefa of estado.tarefas) {
             const tr = document.createElement("tr");
             /* Clicar na linha abre o painel de edição daquela tarefa. A função
@@ -1641,7 +1528,7 @@
              * concluída não chega mais. */
             celula(tr, tarefa.estado === "CONCLUIDA" ? "--" : tarefa.proxima_ativacao);
             celula(tr, tarefa.ativacoes);
-            els.tabelaTarefasBody.appendChild(tr);
+            $("#tabela-tarefas tbody").appendChild(tr);
           }
         }
 
@@ -1653,7 +1540,7 @@
            * se a URL fosse sempre '/api/gantt', o navegador reaproveitaria a
            * imagem anterior e o gráfico não mudaria. Contador, e não o número do
            * tick: editar uma tarefa muda o gráfico SEM mudar o tick. */
-          els.imgGantt.src = "/api/gantt?v=" + ++app.versaoGantt;
+          $("#img-gantt").src = "/api/gantt?v=" + ++app.versaoGantt;
         }
 
         /* -------------------------------- inspetor -------------------------------- */
@@ -1674,9 +1561,9 @@
             app.atual &&
             app.atual.tarefas.find((x) => x.id === app.tarefaSelecionada);
           if (!t) return;
-          const campo = els.editarCampo.value;
-          els.editarValor.value = t[campo];
-          els.editarValor.placeholder =
+          const campo = $("#editar-campo").value;
+          $("#editar-valor").value = t[campo];
+          $("#editar-valor").placeholder =
             campo === "estado" ? "PRONTA, SUSPENSA, INATIVA ou CONCLUIDA" : "";
         }
 
@@ -1686,20 +1573,20 @@
           app.tarefaSelecionada = id;
           /* O mesmo rótulo das linhas do Gantt: o id como está no arquivo
            * ("t06"), com um "T" na frente só quando começa por número ("T3"). */
-          els.inspetorTituloId.textContent = (/^[0-9]/.test(id) ? "T" : "") + id;
-          els.inspetorMotivo.textContent =
+          $("#inspetor-titulo-id").textContent = (/^[0-9]/.test(id) ? "T" : "") + id;
+          $("#inspetor-motivo").textContent =
             ""; /* apaga a mensagem da edição anterior */
-          els.inspetorMotivo.classList.remove("ok");
-          els.painelInspetor.hidden = false;
+          $("#inspetor-motivo").classList.remove("ok");
+          $("#painel-inspetor").hidden = false;
           atualizarTabelaTarefas(app.atual); /* destaca a linha clicada */
-          els.painelInspetor.scrollIntoView({ block: "nearest" });
+          $("#painel-inspetor").scrollIntoView({ block: "nearest" });
           sugerirValor(); /* o formulário já abre com o valor atual (req. 3.2) */
         }
 
         /* Fecha o painel e "esquece" a tarefa selecionada. */
         function fecharInspetor() {
           app.tarefaSelecionada = null;
-          els.painelInspetor.hidden = true;
+          $("#painel-inspetor").hidden = true;
           if (app.atual)
             atualizarTabelaTarefas(app.atual); /* tira o destaque */
         }
@@ -1718,49 +1605,50 @@
            * (ver rota_editar em servidor.c). */
           const corpo = {
             id: app.tarefaSelecionada,
-            campo: els.editarCampo.value,
-            valor: els.editarValor.value,
+            campo: $("#editar-campo").value,
+            valor: $("#editar-valor").value,
           };
-          const resp = await postJson("/api/editar", corpo);
+          const resp = await chamarApi("/api/editar", {
+            method: "POST",
+            body: JSON.stringify(corpo),
+          });
 
           if (!resp.erro) {
             /* Aceita: o painel FICA aberto (o usuário pode querer outra edição
              * na mesma tarefa) e confirma em verde; "fechar" fecha. */
             aplicarNovoEstado(resp);
-            els.inspetorMotivo.textContent =
+            $("#inspetor-motivo").textContent =
               "alteração aplicada no tick " + resp.tick;
-            els.inspetorMotivo.classList.add("ok");
+            $("#inspetor-motivo").classList.add("ok");
           } else {
-            els.inspetorMotivo.textContent = resp.erros[0];
-            els.inspetorMotivo.classList.remove("ok");
+            $("#inspetor-motivo").textContent = resp.erros[0];
+            $("#inspetor-motivo").classList.remove("ok");
           }
         }
 
         /* --------------------------------- start ---------------------------------- */
 
-        els.btnCarregar.addEventListener("click", aoCarregar);
-        els.btnAvancar.addEventListener("click", aoAvancar);
-        els.btnRetroceder.addEventListener("click", aoRetroceder);
-        els.btnExecutarTudo.addEventListener("click", aoExecutarTudo);
-        els.btnExportarSvg.addEventListener("click", aoExportarSvg);
-        els.formEditar.addEventListener("submit", aoSubmeterEdicao);
-        els.btnFecharInspetor.addEventListener("click", fecharInspetor);
-        els.selAlgoritmo.addEventListener("change", aoTrocarAlgoritmo);
-        $("#ent-cpus").addEventListener("change", aoAlterarCpus);
+        $("#btn-carregar").addEventListener("click", aoCarregar);
+        /* Avançar: um tick (req. 1.5). Retroceder: restaura a foto anterior
+         * do histórico do C (req. 1.5.2). Executar tudo: UMA chamada; os ticks
+         * do meio ficam no histórico do C (req. 1.5, modo b). */
+        $("#btn-avancar").addEventListener("click", () => comando("/api/avancar"));
+        $("#btn-retroceder").addEventListener("click", () => comando("/api/retroceder"));
+        $("#btn-executar-tudo").addEventListener("click", () => comando("/api/executar_tudo"));
+        $("#btn-exportar-svg").addEventListener("click", aoExportarSvg);
+        $("#form-editar").addEventListener("submit", aoSubmeterEdicao);
+        $("#btn-fechar-inspetor").addEventListener("click", fecharInspetor);
+        $("#sel-algoritmo").addEventListener("change", aoTrocarAlgoritmo);
+        /* CPUs (req. 3.1): recusado, o campo volta ao valor em vigor. */
+        $("#ent-cpus").addEventListener("change", () =>
+          comando("/api/cpus", $("#ent-cpus").value),
+        );
         $("#btn-modo-manual").addEventListener("click", abrirModoManual);
-        $("#btn-man-fechar").addEventListener("click", () => $("#dlg-manual").close());
-        $("#btn-man-cancelar").addEventListener("click", () => $("#dlg-manual").close());
         $("#btn-man-tarefa").addEventListener("click", aoAdicionarTarefaManual);
         $("#btn-man-carregar").addEventListener("click", aoCarregarManual);
         /* Os três parâmetros do sistema também mudam a prévia na hora. */
         for (const id of ["#man-algoritmo", "#man-quantum", "#man-cpus"])
           $(id).addEventListener("input", atualizarPreviaManual);
-        $("#btn-alg-fechar").addEventListener("click", () =>
-          $("#dlg-algoritmo").close(),
-        );
-        $("#btn-alg-cancelar").addEventListener("click", () =>
-          $("#dlg-algoritmo").close(),
-        );
         $("#btn-alg-importar").addEventListener("click", () =>
           $("#arq-algoritmo").click(),
         );
@@ -1778,7 +1666,7 @@
         ))
           radio.addEventListener("change", desenharAlgoritmo);
         /* Trocar o campo no painel (estado -> prazo...) troca o valor sugerido. */
-        els.editarCampo.addEventListener("change", sugerirValor);
+        $("#editar-campo").addEventListener("change", sugerirValor);
         aoAbrirPagina();
       })();
     </script>

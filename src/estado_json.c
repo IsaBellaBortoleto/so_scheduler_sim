@@ -109,6 +109,17 @@ static void sai_lista(Saida *s, const char lista[][MAX_DIAG_TXT], int n)
     sai(s, "]");
 }
 
+/* Fim de uma montagem: quantos caracteres foram escritos, ou -1 se algo não
+ * coube. Não entrega JSON pela metade: esvazia o que já tinha escrito. */
+static int fechar(Saida *s)
+{
+    if (!s->estourou)
+        return (int)s->pos;
+    if (s->tam > 0)
+        s->buf[0] = '\0';
+    return -1;
+}
+
 /* Monta   {"erro":true,"erros":["..."],"avisos":["..."]}
  * Devolve quantos caracteres escreveu, ou -1 se não coube em buf. */
 int diagnostico_json(const Diagnostico *d, char *buf, size_t tam)
@@ -121,15 +132,7 @@ int diagnostico_json(const Diagnostico *d, char *buf, size_t tam)
     sai(&s, ",\"avisos\":");
     sai_lista(&s, d->avisos, d->n_avisos);
     sai(&s, "}");
-
-    if (s.estourou)
-    {
-        /* Não entrega JSON pela metade: esvazia o que já tinha escrito. */
-        if (tam > 0)
-            buf[0] = '\0';
-        return -1;
-    }
-    return (int)s.pos;
+    return fechar(&s);
 }
 
 /* -------------------------------- estado --------------------------------- */
@@ -239,20 +242,5 @@ int estado_json_com_avisos(const Simulacao *sim, const Diagnostico *d,
         sai_lista(&s, d->avisos, d->n_avisos);
     }
     sai(&s, "}"); /* fecha o objeto */
-
-    if (s.estourou)
-    {
-        /* Não entrega JSON pela metade: esvazia o que já tinha escrito. */
-        if (tam > 0)
-            buf[0] = '\0';
-        return -1;
-    }
-    return (int)s.pos;
-}
-
-/* O estado sem avisos: a resposta de todas as rotas, menos /api/carregar.
- * Só repassa para a função acima, para existir UM lugar que monta o JSON. */
-int estado_json_atual(const Simulacao *sim, char *buf, size_t tam)
-{
-    return estado_json_com_avisos(sim, NULL, buf, tam);
+    return fechar(&s);
 }
