@@ -1,0 +1,7 @@
+# DM - Deadline Monotonic: a tarefa de MENOR prazo relativo (Di) tem a maior
+# prioridade. Prioridade fixa e preemptivo, como o RM; quando Di = Pi em
+# todas as tarefas, DM e RM dao a mesma escala (capitulo 2.4.3).
+# nome;descricao;preemptivo (sim/nao)
+DM;Deadline Monotonic;sim
+# um criterio por linha: campo;sentido (menor/maior ganha)
+prazo;menor

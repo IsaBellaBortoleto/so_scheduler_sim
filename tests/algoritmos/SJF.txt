@@ -1,0 +1,6 @@
+# SJF - Shortest Job First: a tarefa de MENOR duracao executa primeiro.
+# Nao preemptivo: quem esta na CPU vai ate o fim.
+# nome;descricao;preemptivo (sim/nao)
+SJF;Shortest Job First;nao
+# um criterio por linha: campo;sentido (menor/maior ganha)
+duracao;menor

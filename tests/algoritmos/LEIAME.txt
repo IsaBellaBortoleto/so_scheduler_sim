@@ -1,0 +1,113 @@
+ALGORITMOS CRIADOS PELO USUARIO - EXEMPLOS E ROTEIRO DA DEFESA
+==============================================================
+
+O simulador nasce so com RM e EDF. Qualquer outro algoritmo o USUARIO cria
+com o programa aberto, sem recompilar, por um destes dois caminhos (botao
+"+ novo", ao lado do seletor de algoritmo):
+  1. importar um .txt com a definicao;
+  2. preencher o formulario (ele monta o mesmo texto do .txt).
+O algoritmo criado vale ate o programa fechar.
+
+
+FORMATO DO .TXT DE ALGORITMO
+----------------------------
+  nome;descricao;preemptivo      1a linha util. preemptivo = sim | nao
+  campo;sentido                  um criterio por linha. sentido = menor | maior
+
+- nome: ate 15 letras; e o que vai na 1a linha do arquivo de configuracao.
+- campo: periodo, prazo, deadline_abs, ativacao, ingresso, duracao,
+  exec_restante (campos do TCB).
+- ate 4 criterios; o 2o so e consultado se o 1o empatar. Depois deles vem
+  o desempate do requisito 4.3 (quem ja executava, prazo, ingresso,
+  duracao, sorteio).
+- maiusculas/minusculas nao importam, o ';' final e opcional, linhas em
+  branco e comecadas por '#' sao ignoradas.
+
+
+ARQUIVOS DESTA PASTA
+--------------------
+FIFO.txt          ativacao;menor, nao preemptivo: quem chegou antes executa
+                  ate terminar
+SJF.txt           duracao;menor, nao preemptivo: a tarefa mais curta primeiro
+DM.txt            prazo;menor, preemptivo: Deadline Monotonic (cap. 2.4.3)
+demo_config.txt   arquivo de CONFIGURACAO (nao de algoritmo) para a
+                  demonstracao: 4 tarefas, 1 CPU, 1a linha pede FIFO
+
+Para mostrar outro algoritmo ao vivo pelo FORMULARIO (nao ha arquivo, de
+proposito):
+  SRTF   exec_restante;menor, preemptivo: menor tempo restante primeiro
+
+
+RESULTADO DO demo_config.txt COM CADA ALGORITMO
+-----------------------------------------------
+Observado em 14/11/2026. Tarefa na CPU em cada tick, do 0 ao 11. Para trocar
+de algoritmo, mude a 1a linha do arquivo ou use o seletor no tick 0, antes
+de avancar: a troca no tick 0 vale ja para o primeiro intervalo.
+
+  tick   0  1  2  3  4  5  6  7  8  9  10 11
+  FIFO   t4 t4 t4 t1 t1 t1 t1 t2 t2 t3 t3 t4
+  SJF    t4 t4 t4 t3 t2 t2 t1 t1 t1 t1 t3 t2
+  DM     t4 t4 t4 t3 t2 t2 t1 t3 t4 t4 t4 t2
+  RM     t4 t4 t3 t4 t2 t2 t1 t3 t4 t4 t4 t2
+  EDF    t4 t4 t4 t3 t2 t2 t1 t3 t4 t4 t4 t1
+
+Os cinco terminam no tick 184. O que apontar em cada linha:
+- tick 0, todos: t1 e t4 chegam juntas. No FIFO o criterio (ativacao)
+  empata, e quem decide e o desempate do req. 4.3: menor prazo, a t4.
+- tick 2, RM x DM: a t3 chega. No RM ela tem periodo menor (5 < 8) e TIRA a
+  t4 da CPU. No DM a t4 tem prazo menor (3 < 5) e continua.
+- ticks 3 a 6, FIFO: a t1 espera desde o tick 0 e executa inteira, mesmo com
+  a t2 e a t3 ja prontas (ordem de chegada, sem preempcao).
+- ticks 6 a 9, SJF: a t1 nao e interrompida pela t3, que chega de novo no
+  tick 7 e e mais curta. E o "nao preemptivo". No DM/RM/EDF a t3 entra no 7.
+
+
+ROTEIRO DA DEFESA (uns 5 minutos)
+---------------------------------
+1. Abrir o simulador e carregar demo_config.txt.
+   -> recusado: 'algoritmo "FIFO" nao existe (disponiveis: RM, EDF). Para
+      usa-lo, adicione-o em "novo algoritmo" e carregue o arquivo de novo.'
+   Dizer: o simulador so conhece RM e EDF; o FIFO ainda nao existe.
+
+2. CAMINHO 1 - arquivo: "+ novo" > "importar .txt" > FIFO.txt.
+   -> o dialogo fecha, aparece "Algoritmo FIFO adicionado" e o FIFO entra
+      no seletor.
+
+3. Carregar demo_config.txt de novo e avancar ate o tick 7.
+   -> conferir com a linha FIFO da tabela acima.
+
+4. CAMINHO 2 - formulario: "+ novo", nome SRTF, preemptivo, criterio
+   exec_restante / menor ganha. Mostrar a "previa do .txt": e o mesmo
+   formato do arquivo. "adicionar algoritmo".
+
+5. Erro de proposito: "+ novo", nome FIFO de novo.
+   -> 'Ja existe um algoritmo chamado 'FIFO'.' aparece dentro do dialogo e
+      o que foi digitado continua la.
+
+6. Trocar o algoritmo no seletor no meio da simulacao (FIFO -> SRTF),
+   avancar, retroceder para antes da troca: o algoritmo anterior volta.
+
+7. Se ele pedir mais um: importar SJF.txt ou DM.txt, ou criar outro pelo
+   formulario com o criterio que ele disser.
+
+
+POR QUE O NUCLEO NAO MUDA (o que responder)
+-------------------------------------------
+- Um algoritmo e DADO, nao codigo: uma lista de criterios (campo do TCB +
+  menor/maior) e a flag preemptivo. Fica na struct Escalonador
+  (include/escalonador.h).
+- O kernel.c nao cita nenhum algoritmo. Ele faz duas chamadas:
+  escalonador_buscar(nome), ao carregar, e escalonador_ordenar(...), para
+  decidir quem fica com as CPUs.
+- Toda a comparacao esta em comparar_sem_sorteio (src/escalonador.c): le
+  o campo de cada tarefa pela tabela 'campos' e aplica o sentido.
+- O .txt, o formulario e os nativos RM e EDF entram pelo MESMO caminho:
+  escalonador_carregar_texto. A rota e POST /api/algoritmo_novo.
+- Preemptivo ou nao tambem se resolve na comparacao: no nao preemptivo,
+  quem ja esta na CPU ganha de qualquer um.
+- Limite assumido: criterios por campo cobrem RM, EDF, DM, FIFO, SJF, SRTF.
+  Algoritmo que exige conta (ex. menor folga) nao cabe; para esse caso,
+  um campo novo na tabela 'campos' (src/escalonador.c).
+- Requisito atendido: 4.2 do Projeto A ("novos algoritmos possam ser
+  facilmente incluidos no simulador sem a necessidade de modificar o
+  codigo da simulacao").

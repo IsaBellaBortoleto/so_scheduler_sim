@@ -825,5 +825,41 @@ int sim_trocar_algoritmo(Simulacao *s, const char *nome,
     strcpy(s->historico[s->n_hist - 1].algoritmo, s->atual.algoritmo);
     snprintf(s->ultimo_evento, sizeof s->ultimo_evento,
              "algoritmo trocado para %s no tick %d", esc->nome, s->atual.tick);
+
+    /* TROCA NO TICK 0 = escolher o algoritmo ANTES de a simulação começar
+     * (req. 3.2 e 4.1: o do arquivo é só o padrão). Nada executou ainda,
+     * mas sim_iniciar já distribuiu as CPUs com o algoritmo do arquivo; sem
+     * refazer isso, o primeiro intervalo sairia com o algoritmo antigo.
+     * Então a distribuição é desfeita e refeita com o algoritmo novo:
+     *   1. quem estava EXECUTANDO volta para PRONTA e solta a CPU;
+     *   2. o contador de CPU desligada volta a 0 (a escalonar() vai contar
+     *      de novo, e sem zerar o tick 0 seria contado duas vezes);
+     *   3. escalonar() escolhe de novo;
+     *   4. a foto do tick 0 é trocada, como na edição manual (o Gantt e o
+     *      retroceder leem o histórico).
+     * Depois do tick 0 NÃO se refaz nada: o intervalo em curso já foi
+     * decidido, e a troca vale a partir do próximo tick (req. 3.1). */
+    if (s->atual.tick == 0)
+    {
+        Estado *e = &s->atual;
+        for (int i = 0; i < e->ntarefas; i++)
+        {
+            if (e->tarefas[i].estado == EST_EXECUTANDO)
+            {
+                soltar_cpu(e, &e->tarefas[i]);
+                e->tarefas[i].estado = EST_PRONTA;
+            }
+        }
+        for (int c = 0; c < e->ncpus; c++)
+            e->cpus[c].ticks_desligada = 0;
+        escalonar(s);
+
+        /* No tick 0 a última foto é a única: historico[0]. */
+        estado_liberar(&s->historico[s->n_hist - 1]);
+        s->historico[s->n_hist - 1] = estado_clonar(e);
+        snprintf(s->ultimo_evento, sizeof s->ultimo_evento,
+                 "algoritmo trocado para %s antes do inicio: vale desde o tick 0",
+                 esc->nome);
+    }
     return 1;
 }

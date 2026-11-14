@@ -301,7 +301,8 @@ tbody tr.selecionada { background: rgba(91,141,239,.30); outline: 1px solid var(
     <!-- Algoritmo de escalonamento. As opções vêm do C ("algoritmos" no
      estado), para um algoritmo novo aparecer aqui sem mexer no HTML
      (req. 4.2). Trocar no meio da simulação vale a partir do próximo
-     tick (req. 3.1). -->
+     tick (req. 3.1); trocar no tick 0, antes de avançar, vale já para o
+     primeiro intervalo. -->
 <label for="sel-algoritmo">algoritmo</label>
 <select id="sel-algoritmo" disabled></select>
 <!-- Abre o diálogo "novo algoritmo" (mais abaixo). Na barra fica só este
@@ -816,13 +817,7 @@ tbody tr.selecionada { background: rgba(91,141,239,.30); outline: 1px solid var(
       /* O 1º decide; os seguintes só valem se os anteriores empatarem. */
       ordem.textContent = i === 0 ? "1º" : "empate " + (i + 1) + "º";
 
-      /* Um campo já usado em outra linha fica desabilitado: repetir o
-       * mesmo critério nunca desempata nada. */
-      for (const nome of CAMPOS_CRITERIO) {
-        const op = new Option(nome, nome);
-        op.disabled = criterios.some((c, j) => j !== i && c.campo === nome);
-        campo.add(op);
-      }
+      for (const nome of CAMPOS_CRITERIO) campo.add(new Option(nome, nome));
       campo.value = criterio.campo;
       campo.setAttribute("aria-label", "campo do critério " + (i + 1));
       campo.addEventListener("change", () => { criterio.campo = campo.value; desenharAlgoritmo(); });
@@ -866,9 +861,7 @@ tbody tr.selecionada { background: rgba(91,141,239,.30); outline: 1px solid var(
   }
 
   function aoAdicionarCriterio() {
-    /* Começa no primeiro campo ainda não usado. */
-    const livre = CAMPOS_CRITERIO.find((nome) => !criterios.some((c) => c.campo === nome));
-    criterios.push({ campo: livre, sentido: "menor" });
+    criterios.push({ campo: CAMPOS_CRITERIO[0], sentido: "menor" });
     desenharAlgoritmo();
   }
 

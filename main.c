@@ -42,24 +42,9 @@
  *  refatoracao, o assert avisa na hora, com arquivo e linha.
  * ========================================================================*/
 
-/* Algoritmo inventado, so para o teste: prova que um escalonador novo entra
- * no sistema sem que nenhuma linha do kernel mude (requisito 4.2). */
-static long prio_teste(const TCB *t, int tick)
-{
-    (void)t;
-    (void)tick;
-    return 42;
-}
-
 /* Interface plugavel do escalonador (escalonador.h). */
 static void teste_escalonador(void)
 {
-    const Escalonador *achado;
-    /* Algoritmo escrito em C (campo opcional 'prioridade'): sem criterios. */
-    Escalonador novo = { .nome = "TESTE",
-                         .descricao = "algoritmo inventado para o autoteste",
-                         .preemptivo = 1, .prioridade = prio_teste };
-
     /* Comparacao sem diferenciar maiusculas (requisito 3.3.2). O caso
      * "RM" x "RMS" e o que pega uma comparacao que para na string mais curta. */
     assert(str_igual_ci("RM", "rm") == 1);
@@ -74,16 +59,6 @@ static void teste_escalonador(void)
     assert(escalonador_buscar("Edf") != NULL);
     assert(escalonador_buscar("RMS") == NULL);   /* nome parecido nao serve */
     assert(escalonador_buscar(NULL) == NULL);
-
-    /* RM e EDF sao DADOS (uma lista de criterios), registrados pelo mesmo
-     * texto que o usuario usa: nao ha funcao em C por tras deles, e os dois
-     * sao preemptivos (requisito 4). */
-    {
-        const Escalonador *rm  = escalonador_buscar("RM");
-        const Escalonador *edf = escalonador_buscar("EDF");
-        assert(rm->prioridade  == NULL && rm->n_criterios  == 1 && rm->preemptivo  == 1);
-        assert(edf->prioridade == NULL && edf->n_criterios == 1 && edf->preemptivo == 1);
-    }
 
     /* EDF e um algoritmo CRIADO PELO USUARIO (escalonador_carregar_texto):
      * o que e recusado, o que e aceito, e a flag preemptivo. */
@@ -114,6 +89,8 @@ static void teste_escalonador(void)
         /* Definicoes recusadas: cada uma com o seu motivo, e NADA entra na
          * tabela. */
         assert(!escalonador_carregar_texto("", motivo, sizeof motivo));
+        assert(!escalonador_carregar_texto(";sem nome;sim\nperiodo;menor", motivo, sizeof motivo));
+        assert(strstr(motivo, "nome") != NULL);
         assert(!escalonador_carregar_texto("rm;nome repetido;sim\nperiodo;menor", motivo, sizeof motivo));
         assert(!escalonador_carregar_texto("X;sem criterio;sim", motivo, sizeof motivo));
         assert(!escalonador_carregar_texto("X;campo que nao existe;sim\ncor;menor", motivo, sizeof motivo));
@@ -172,9 +149,6 @@ static void teste_escalonador(void)
         /* Ids em texto; sem eles as tres tarefas teriam o MESMO id ("") e
          * o sorteio nao teria como escolher. */
         strcpy(t[0].id, "1"); strcpy(t[1].id, "2"); strcpy(t[2].id, "3");
-        assert(id_comparar("t2", "t10") < 0);
-        assert(id_comparar("T06", "t06") != 0 && str_igual_ci("T06", "t06"));
-        assert(id_comparar("a", "b") < 0);
 
         /* Sem empate: periodos 12, 6 e 9 -> posicoes na ordem 1, 2, 0. */
         t[0].periodo = 12; t[1].periodo = 6; t[2].periodo = 9;
@@ -269,20 +243,6 @@ static void teste_escalonador(void)
         escalonador_ordenar(rm, &e, ind, 0);
         escalonador_ordenar(rm, &e, ind, 1);
     }
-
-    /* Um algoritmo novo: registra, e a busca passa a encontra-lo. A chamada
-     * fica FORA do assert de proposito -- se o programa for compilado com
-     * -DNDEBUG os asserts somem, e o registro sumiria junto. */
-    escalonador_registrar(&novo);
-    achado = escalonador_buscar("teste");
-    assert(achado != NULL);
-    assert(achado->prioridade(NULL, 0) == 42);   /* chamada pelo ponteiro */
-
-    /* A tabela guarda uma COPIA da struct: estragar o original depois de
-     * registrar nao pode afetar o que esta registrado. */
-    strcpy(novo.nome, "ESTRAGADO");
-    assert(escalonador_buscar("ESTRAGADO") == NULL);
-    assert(escalonador_buscar("teste") != NULL);
 
     printf("autoteste: interface do escalonador ... ok\n");
 }
@@ -673,6 +633,31 @@ static void teste_editar(void)
     assert(sim_editar_tarefa(&s, "1", "prazo", "7", m, sizeof m));
     assert(s.atual.tarefas[0].prazo == 7);
 
+    /* Troca de algoritmo NO TICK 0: vale ja para o primeiro intervalo. A
+     * tarefa 1 tem o menor periodo (ganha no RM); a 2 tem o menor prazo
+     * (ganha no EDF). Uma CPU so: da para ver quem ficou com ela. */
+    {
+        Simulacao z;
+        memset(&z, 0, sizeof z);
+        iniciar_de_texto(&z, "RM;0;1\n1;;0;1;5;5\n2;;0;1;10;3");
+        assert(z.atual.tarefas[0].estado == EST_EXECUTANDO);
+        assert(sim_trocar_algoritmo(&z, "edf", m, sizeof m));
+        assert(z.atual.tarefas[1].estado == EST_EXECUTANDO && z.atual.cpus[0].tarefa == 1);
+        assert(z.atual.tarefas[0].estado == EST_PRONTA && z.atual.tarefas[0].cpu == -1);
+        assert(z.atual.cpus[0].ticks_desligada == 0);
+        /* A foto do tick 0 foi trocada: o Gantt mostra a escolha nova. */
+        assert(z.n_hist == 1 && z.historico[0].tarefas[1].estado == EST_EXECUTANDO);
+        assert(strstr(z.ultimo_evento, "tick 0") != NULL);
+        /* Depois do tick 0 a troca NAO mexe no intervalo em curso. */
+        assert(sim_avancar(&z));
+        {
+            int na_cpu = z.atual.cpus[0].tarefa;
+            assert(sim_trocar_algoritmo(&z, "rm", m, sizeof m));
+            assert(z.atual.cpus[0].tarefa == na_cpu);
+        }
+        sim_liberar(&z);
+    }
+
     /* Troca de algoritmo (req. 3.1): nome oficial, recusa com a lista. */
     assert(!sim_trocar_algoritmo(&s, "fifo", m, sizeof m) && strstr(m, "EDF"));
     assert(sim_avancar(&s));
@@ -853,8 +838,8 @@ static void teste_estado_json(void)
     assert(strcmp(buf, "{\"carregado\":false,\"tick\":0,\"terminada\":false,"
                        "\"algoritmo\":\"\",\"quantum\":0,\"ncpus\":0,"
                        "\"ultimo_evento\":\"\",\"cpus\":[],\"tarefas\":[],"
-                       "\"algoritmos\":[\"RM\",\"EDF\",\"FILA\",\"TESTE\"]}") == 0);
-    /* "FILA" e "TESTE" sao os algoritmos que teste_escalonador registrou: ele aparece na
+                       "\"algoritmos\":[\"RM\",\"EDF\",\"FILA\"]}") == 0);
+    /* "FILA" e o algoritmo que teste_escalonador registrou: ele aparece na
      * lista sem ninguem mexer no estado_json.c. E o req. 4.2 funcionando. */
 
     /* Depois de carregar: cabecalho, cor no formato do CSS, e o texto de

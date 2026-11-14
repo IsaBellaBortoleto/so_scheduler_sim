@@ -29,9 +29,8 @@
  * RM e EDF sao registrados por esse mesmo caminho.
  *
  * LIMITE ASSUMIDO: criterios por campo cobrem RM, EDF, FIFO, SJF, DM...
- * Algoritmo que exige conta (ex. menor folga) nao cabe em criterios; para
- * esse caso ficou o campo opcional 'prioridade' (uma funcao em C), que
- * serviria tambem a um algoritmo vindo de biblioteca dinamica (req. 4.2).
+ * Algoritmo que exige conta (ex. menor folga) nao cabe em criterios: para
+ * ele, um campo novo na tabela 'campos' (escalonador.c).
  * ==========================================================================*/
 
 /* Quantos criterios um algoritmo pode ter. O 2o so e consultado se o 1o
@@ -45,26 +44,15 @@ typedef struct {
 
 typedef struct {
     char nome[16];        /* cópia: o nome pode vir digitado pelo usuário */
-    char descricao[64];
     int  preemptivo;      /* 0 = quem está na CPU não é tirado por outra tarefa */
     int  n_criterios;
     Criterio criterios[MAX_CRITERIOS];
-    /* Opcional: algoritmo escrito em C. NULL = usa a lista de critérios. */
-    long (*prioridade)(const TCB *t, int tick);
 } Escalonador;
 
 /* Lê a definição de um algoritmo em texto (formato no topo deste arquivo)
  * e o registra. Devolve 1 se registrou; 0 se recusou, com o porquê em
  * 'motivo' (nome repetido, campo que nao existe, sem criterio...). */
 int escalonador_carregar_texto(const char *texto, char *motivo, int motivo_tam);
-
-/* Acrescenta um algoritmo ja montado a tabela, copiando a struct inteira
- * (nome e descricao vao junto: sao vetores dentro dela). Uso normal:
- * escalonador_carregar_texto, que valida antes de chamar esta.
- *
- * A tabela tem tamanho fixo; 'esc' NULL ou registro alem do limite e
- * ignorado em silencio. */
-void escalonador_registrar(const Escalonador *esc);
 
 /* Registra os algoritmos que acompanham o simulador (RM e EDF, requisito 4),
  * pelo mesmo texto que o usuario usaria.
@@ -84,7 +72,7 @@ int                escalonador_qtde(void);
 const Escalonador *escalonador_em(int i);
 
 /* Ordena 'indices' (posicoes em e->tarefas) da tarefa MAIS prioritaria para
- * a menos, usando esc->prioridade e, em caso de empate, os criterios do
+ * a menos, usando os criterios do algoritmo e, em caso de empate, os do
  * requisito 4.3. E a unica funcao que o kernel chama a cada tick: as
  * 'ncpus' primeiras posicoes do resultado ganham processador. */
 void escalonador_ordenar(const Escalonador *esc, Estado *e, int *indices, int n);

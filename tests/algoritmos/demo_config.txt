@@ -1,0 +1,10 @@
+# DEMONSTRACAO DOS ALGORITMOS CRIADOS PELO USUARIO (ajuste 1). 1 CPU.
+# Feita para os quatro algoritmos darem escalas DIFERENTES nos primeiros
+# ticks (resultado de cada um em tests/algoritmos/LEIAME.txt).
+# A primeira linha pede FIFO: se ele ainda nao foi adicionado, o simulador
+# recusa e explica como adicionar. Isso faz parte da demonstracao.
+FIFO;0;1
+t1;E63946;0;4;20;20
+t2;457B9D;1;2;10;10
+t3;2A9D8F;2;1;5;5
+t4;F4A261;0;3;8;3

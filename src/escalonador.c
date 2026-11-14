@@ -17,6 +17,7 @@
 #include "escalonador.h"
 #include "config.h" /* str_igual_ci */
 
+#include <ctype.h>
 #include <stddef.h>
 #include <stdio.h>
 #include <string.h>
@@ -28,22 +29,6 @@
 #define MAX_ALGORITMOS 32
 static Escalonador tabela[MAX_ALGORITMOS];
 static int n_algoritmos = 0;
-
-/* Guarda um algoritmo na tabela.
- * A atribuição copia a struct INTEIRA, por isso quem chama pode passar uma
- * variável local (nome e descrição são vetores dentro da struct e vão
- * junto). Ponteiro nulo ou tabela cheia: ignora. */
-void escalonador_registrar(const Escalonador *esc)
-{
-    /* 
-     * 1. Verifica se recebemos um ponteiro válido (NULL check).
-     * 2. Verifica se a nossa 'tabela' estática já atingiu a capacidade máxima. */
-    if (esc == NULL || n_algoritmos >= MAX_ALGORITMOS)
-        return;
-    tabela[n_algoritmos] = *esc;
-    /* Incrementa o contador de algoritmos registados */
-    n_algoritmos++;
-}
 
 /* Retorna a quantidade exata de algoritmos atualmente registados no sistema. */
 int escalonador_qtde(void) { return n_algoritmos; }
@@ -161,10 +146,10 @@ static int sorteio(int tick, const char *ida, const char *idb)
  * O primeiro que diferenciar as duas tarefas decide.
  *
  * Critério 0 = o algoritmo: a lista de critérios dele, na ordem em que o
- * usuário escreveu (ou a função em C, se houver).
+ * usuário escreveu.
  * Critério 2: "prazo" é o valor lido do arquivo (contado a partir da
  * ativação), e não o deadline absoluto. */
-static int comparar_sem_sorteio(const Escalonador *esc, const TCB *a, const TCB *b, int tick)
+static int comparar_sem_sorteio(const Escalonador *esc, const TCB *a, const TCB *b)
 {
     int ea = (a->estado == EST_EXECUTANDO);
     int eb = (b->estado == EST_EXECUTANDO);
@@ -176,27 +161,15 @@ static int comparar_sem_sorteio(const Escalonador *esc, const TCB *a, const TCB 
     if (!esc->preemptivo && ea != eb)
         return (ea > eb) ? -1 : 1;
 
-    /* (0) o algoritmo */
-    if (esc->prioridade != NULL)
+    /* (0) o algoritmo: o primeiro campo diferente decide. */
+    for (int i = 0; i < esc->n_criterios; i++)
     {
-        /* Algoritmo escrito em C: valor MAIOR ganha. */
-        long pa = esc->prioridade(a, tick);
-        long pb = esc->prioridade(b, tick);
-        if (pa != pb)
-            return (pa > pb) ? -1 : 1;
-    }
-    else
-    {
-        /* Algoritmo por critérios: o primeiro campo diferente decide. */
-        for (int i = 0; i < esc->n_criterios; i++)
+        long va = valor_campo(a, esc->criterios[i].campo);
+        long vb = valor_campo(b, esc->criterios[i].campo);
+        if (va != vb)
         {
-            long va = valor_campo(a, esc->criterios[i].campo);
-            long vb = valor_campo(b, esc->criterios[i].campo);
-            if (va != vb)
-            {
-                int a_ganha = esc->criterios[i].maior_ganha ? (va > vb) : (va < vb);
-                return a_ganha ? -1 : 1;
-            }
+            int a_ganha = esc->criterios[i].maior_ganha ? (va > vb) : (va < vb);
+            return a_ganha ? -1 : 1;
         }
     }
 
@@ -217,9 +190,9 @@ static int comparar_sem_sorteio(const Escalonador *esc, const TCB *a, const TCB 
 
 /* Verdadeiro se as duas empatam em tudo antes do sorteio.
  * Serve para o Gantt marcar que a escolha foi decidida na sorte (4.3-5). */
-static int empate_ate_sorteio(const Escalonador *esc, const TCB *a, const TCB *b, int tick)
+static int empate_ate_sorteio(const Escalonador *esc, const TCB *a, const TCB *b)
 {
-    return comparar_sem_sorteio(esc, a, b, tick) == 0;
+    return comparar_sem_sorteio(esc, a, b) == 0;
 }
 
 /* Decide qual de duas tarefas vem primeiro.
@@ -229,7 +202,7 @@ static int comparar(const Escalonador *esc, const TCB *a, const TCB *b, int tick
 {
     /* Invoca a Árvore de Decisão em Cascata (Critérios 0 a 4). 
      * Guarda o resultado matemático (-1, 1 ou 0) na variável local 'c'. */
-    int c = comparar_sem_sorteio(esc, a, b, tick);
+    int c = comparar_sem_sorteio(esc, a, b);
     /** Lógica do Operador Ternário ( c ? c : sorteio(...) ):
      * - Se 'c' for diferente de zero (-1 ou 1), a expressão avalia como TRUE. 
      *   Devolve imediatamente 'c' e a função 'sorteio' NEM SEQUER É EXECUTADA 
@@ -284,7 +257,7 @@ void escalonador_ordenar(const Escalonador *esc, Estado *e, int *indices, int n)
         for (int i = e->ncpus - 1; i >= 0; i--)
         {
             TCB *com_vaga = &e->tarefas[indices[i]];
-            if (!empate_ate_sorteio(esc, com_vaga, de_fora, e->tick))
+            if (!empate_ate_sorteio(esc, com_vaga, de_fora))
                 break;
             com_vaga->sorteada = 1;
         }
@@ -338,9 +311,14 @@ int escalonador_carregar_texto(const char *texto, char *motivo, int tam)
         if (prox) *prox++ = '\0';
         resto = linha;
         c1 = cortar(&resto); c2 = cortar(&resto); c3 = cortar(&resto);
-        if (*c1 == '\0' || *c1 == '#') continue;      /* linha em branco ou comentário */
+        if (*c1 == '#' || (*c1 == '\0' && *c2 == '\0' && *c3 == '\0'))
+            continue;                                  /* linha em branco ou comentário */
 
         if (!cabecalho_lido) {                         /* nome;descricao;preemptivo */
+            /* A descrição (c2) é aceita e ignorada: nada a mostra. */
+            if (*c1 == '\0') {
+                snprintf(motivo, tam, "Falta o nome do algoritmo."); return 0;
+            }
             if (strlen(c1) >= sizeof novo.nome) {
                 snprintf(motivo, tam, "Nome '%s' passa de 15 caracteres.", c1); return 0;
             }
@@ -351,9 +329,8 @@ int escalonador_carregar_texto(const char *texto, char *motivo, int tam)
             else if (str_igual_ci(c3, "nao")) novo.preemptivo = 0;
             else { snprintf(motivo, tam, "Preemptivo deve ser 'sim' ou 'nao' (veio '%s').", c3); return 0; }
             for (char *q = c1; *q; q++)                /* guarda em maiúsculas, como "RM" */
-                if (*q >= 'a' && *q <= 'z') *q -= 32;
-            snprintf(novo.nome, sizeof novo.nome, "%s", c1);
-            snprintf(novo.descricao, sizeof novo.descricao, "%s", c2);
+                *q = (char)toupper((unsigned char)*q);
+            strcpy(novo.nome, c1);                     /* cabe: tamanho conferido acima */
             cabecalho_lido = 1;
             continue;
         }
@@ -383,6 +360,6 @@ int escalonador_carregar_texto(const char *texto, char *motivo, int tam)
     if (n_algoritmos >= MAX_ALGORITMOS) {
         snprintf(motivo, tam, "Limite de %d algoritmos atingido.", MAX_ALGORITMOS); return 0;
     }
-    escalonador_registrar(&novo);
+    tabela[n_algoritmos++] = novo;
     return 1;
 }
