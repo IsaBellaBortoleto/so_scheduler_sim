@@ -69,3 +69,48 @@ REGRAS PARA EXPLICAR NA DEFESA
 REGRESSAO depois do ajuste 3 (14/11/2026): os 18 arquivos de tests/projeto_a
 e o id_texto.txt terminam nos mesmos ticks de antes (282, 922, 2748, 93, 94,
 111, 84, 111, 56, 56, 190, 183, 3250, 475, 475, 7250, 183, 183 e 109).
+
+
+AJUSTE 3 (continuacao) - MODO MANUAL, SEM ARQUIVO DE CONFIGURACAO
+-----------------------------------------------------------------
+Conferido na pagina em 14/11/2026. Nao ha arquivo de teste: o teste e a
+propria tela.
+
+ROTEIRO
+  1. Abrir o simulador, sem carregar nada. Botao "modo manual" (ao lado de
+     "carregar").
+  2. O dialogo abre com valores sugeridos: RM, quantum 0, 1 CPU e a tarefa
+     t1 (cor sugerida, ingresso 0, duracao 1, periodo 10, prazo 10).
+     Previa: "RM;0;1" e "t1;E63946;0;1;10;10;".
+  3. "+ tarefa" duas vezes; mudar id, cor, duracao, periodo e prazo de uma;
+     remover outra no "x"; trocar algoritmo e CPUs. A previa acompanha.
+  4. Erro de proposito: dois ids iguais -> "carregar simulacao" mostra, dentro
+     do dialogo, 'linha 3: id "t1" repetido (ja usado por "t1")' e nada do
+     que foi digitado se perde.
+  5. Corrigir e carregar: o dialogo fecha e a simulacao aparece no tick 0.
+  6. Avancar, abrir "modo manual" de novo: vem preenchido com a simulacao
+     atual. Trocar a cor de uma tarefa e carregar: a cor muda e a simulacao
+     recomeca do tick 0.
+
+O QUE RESPONDER NA DEFESA
+- O modo manual faz tudo o que o arquivo faz porque ELE ESCREVE O ARQUIVO: a
+  pagina monta o mesmo texto (algoritmo;quantum;qtde_cpus e uma linha
+  id;cor;ingresso;duracao;periodo;prazo;lista_eventos por tarefa) e manda
+  para a mesma rota do arquivo, POST /api/carregar.
+- Por isso nao existe um segundo leitor de configuracao: quem valida e o
+  config.c, com as mesmas regras, valores padrao e mensagens do arquivo.
+  A "previa" mostra exatamente o texto enviado, e os erros citam a linha
+  dela (linha 1 = parametros; da linha 2 em diante = tarefas).
+- Requisitos: 3.1 (configurar o sistema: tarefas, caracteristicas de cada
+  tarefa, algoritmo), 3.2 (valores padrao sugeridos e sobrescritos pelo
+  usuario nas telas) e 3.4/5 (erro claro quando a configuracao e invalida).
+- Limite assumido: recarregar pelo modo manual recomeca a simulacao do tick
+  0. Mudar algo SEM recomecar e pela edicao de tarefa, pelo campo CPUs e
+  pelo seletor de algoritmo (estado, Ci, Ci restante, Pi, Di, CPUs,
+  algoritmo). Cor, id, ingresso e eventos so mudam recarregando.
+
+SELETOR DE ALGORITMO
+- "+ novo algoritmo..." e a ultima opcao do seletor (antes era um botao ao
+  lado). Escolher essa opcao abre o dialogo de criacao e o seletor volta a
+  mostrar o algoritmo em vigor. O seletor fica sempre habilitado, mesmo sem
+  simulacao, para dar acesso a essa opcao.

@@ -152,6 +152,50 @@
         border: 1px solid var(--cor-borda);
         border-radius: 8px;
       }
+      /* Modo manual: mais largo, porque tem uma tabela com 8 colunas. */
+      #dlg-manual {
+        width: min(880px, calc(100vw - 32px));
+      }
+      /* Com muitas tarefas a tabela rola por dentro, e os botões do rodapé
+       * continuam à vista. */
+      .man-rolagem {
+        max-height: 38vh;
+        overflow: auto;
+        margin-bottom: 8px;
+      }
+      /* As linhas do modo manual não são clicáveis (as da tabela de tarefas da
+       * página são): desfaz o cursor e o destaque herdados de 'tbody tr'. */
+      #man-tabela tbody tr {
+        cursor: default;
+      }
+      #man-tabela tbody tr:hover {
+        background: none;
+      }
+      #man-tabela input {
+        width: 100%;
+        min-width: 56px;
+        padding: 4px 6px;
+      }
+      /* O seletor de cor do navegador precisa de altura própria e fica sem
+       * o espaçamento interno dos outros campos. */
+      #man-tabela input[type="color"] {
+        min-width: 44px;
+        height: 28px;
+        padding: 1px;
+        cursor: pointer;
+      }
+      .dlg-previa {
+        margin: 0;
+        padding: 8px 12px;
+        max-height: 20vh;
+        overflow: auto;
+        background: var(--cor-fundo);
+        border: 1px solid var(--cor-borda);
+        border-radius: 6px;
+        font-family: ui-monospace, Consolas, monospace;
+        font-size: 12px;
+        white-space: pre-wrap;
+      }
       dialog::backdrop {
         background: rgba(0, 0, 0, 0.55);
       }
@@ -459,6 +503,12 @@
          qualquer nome de arquivo. -->
         <input type="file" id="entrada-arquivo" />
         <button id="btn-carregar">carregar</button>
+        <!-- MODO MANUAL (req. 3.1 e 3.2): para quem NÃO tem arquivo de
+             configuração, ou cujo arquivo não abriu. Abre um diálogo onde se
+             monta, pela tela, tudo o que o arquivo traria. -->
+        <button id="btn-modo-manual" title="montar a simulação sem arquivo">
+          modo manual
+        </button>
       </div>
       <!-- Os dois modos do req. 1.5: passo a passo (avancar/retroceder) e
        completo (executar tudo). Exportar baixa o SVG da simulacao inteira. -->
@@ -473,15 +523,10 @@
      tick (req. 3.1); trocar no tick 0, antes de avançar, vale já para o
      primeiro intervalo. -->
         <label for="sel-algoritmo">algoritmo</label>
-        <select id="sel-algoritmo" disabled></select>
-        <!-- Abre o diálogo "novo algoritmo" (mais abaixo). Na barra fica só este
-     botão, para o formulário não empurrar os outros controles. -->
-        <button
-          id="btn-novo-algoritmo"
-          title="criar um algoritmo de escalonamento"
-        >
-          + novo
-        </button>
+        <!-- A última opção, "+ novo algoritmo…", não é um algoritmo: abre o
+             diálogo de criação. Por isso o seletor fica sempre habilitado,
+             mesmo sem simulação carregada. -->
+        <select id="sel-algoritmo"></select>
         <!-- Quantidade de CPUs (req. geral 2 e 3.1: configurar antes e
              durante). Mudar o número chama POST /api/cpus; o C redistribui as
              tarefas e a mudança vale já para o tick atual. -->
@@ -563,6 +608,78 @@
         <button id="btn-alg-cancelar">cancelar</button>
         <button id="btn-alg-salvar" class="botao-principal">
           adicionar algoritmo
+        </button>
+      </div>
+    </dialog>
+
+    <!-- MODO MANUAL (req. 3.1, 3.2 e 3.4): o usuário monta a simulação pela
+         tela, sem arquivo. O diálogo tem TUDO o que o arquivo de configuração
+         tem: a 1ª linha (algoritmo, quantum, CPUs) e uma linha por tarefa (id,
+         cor, ingresso, duração, período, prazo, eventos).
+         COMO FUNCIONA: a página monta o MESMO texto que estaria no .txt e manda
+         para a MESMA rota do arquivo (POST /api/carregar). Não existe um
+         segundo leitor de configuração: quem valida é o config.c, com as
+         mesmas regras e as mesmas mensagens de erro do arquivo.
+         Aberto com uma simulação já carregada, vem preenchido com ela: serve
+         para alterar qualquer detalhe (inclusive a cor) e recarregar. -->
+    <dialog id="dlg-manual" aria-labelledby="dlg-manual-titulo">
+      <div class="dlg-cabecalho">
+        <h2 id="dlg-manual-titulo">Modo manual</h2>
+        <button id="btn-man-fechar" class="botao-discreto" aria-label="fechar">
+          &times;
+        </button>
+      </div>
+      <p class="dlg-ajuda">
+        Monte a simulação sem arquivo. Os valores sugeridos podem ser trocados;
+        ao carregar, a simulação começa do tick 0.
+      </p>
+
+      <!-- 1ª linha do arquivo: algoritmo;quantum;qtde_cpus -->
+      <div class="dlg-rotulo">parâmetros do sistema</div>
+      <div class="dlg-linha">
+        <label class="dlg-campo">algoritmo
+          <select id="man-algoritmo"></select>
+        </label>
+        <label class="dlg-campo">quantum (0 = sem limite)
+          <input type="number" id="man-quantum" min="0" />
+        </label>
+        <label class="dlg-campo">CPUs
+          <input type="number" id="man-cpus" min="1" />
+        </label>
+      </div>
+
+      <!-- Demais linhas do arquivo: uma tarefa por linha. As linhas da tabela
+           são criadas pelo script (desenharManual). -->
+      <div class="dlg-rotulo">tarefas</div>
+      <div class="man-rolagem">
+        <table id="man-tabela">
+          <thead>
+            <tr>
+              <th>id</th>
+              <th>cor</th>
+              <th data-dica="tick em que a tarefa entra no sistema">ingresso</th>
+              <th data-dica="Ci: ticks de CPU de cada execução">duração</th>
+              <th data-dica="Pi: uma chegada a cada Pi ticks">período</th>
+              <th data-dica="Di: prazo contado da chegada; vazio = igual ao período">prazo</th>
+              <th data-dica="lista de eventos (tratada no Projeto B)">eventos</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <button id="btn-man-tarefa">+ tarefa</button>
+
+      <!-- O texto que vai para o C. As mensagens de erro citam a linha DESTE
+           texto: linha 1 = parâmetros, linha 2 em diante = tarefas. -->
+      <div class="dlg-rotulo">prévia do arquivo de configuração</div>
+      <pre id="man-previa" class="dlg-previa"></pre>
+
+      <ul id="man-erros" class="lista-diagnostico erros" role="alert"></ul>
+      <div class="dlg-rodape">
+        <button id="btn-man-cancelar">cancelar</button>
+        <button id="btn-man-carregar" class="botao-principal">
+          carregar simulação
         </button>
       </div>
     </dialog>
@@ -776,6 +893,7 @@
         /* Estado global do frontend. Só o tick atual: o histórico mora no C. */
         const app = {
           atual: null /* último Estado recebido do servidor */,
+          algoritmos: [] /* nomes registrados no C (seletores de algoritmo) */,
           tarefaSelecionada: null,
           versaoGantt: 0 /* ver atualizarGantt() */,
         };
@@ -861,6 +979,10 @@
              * já terminada). Invertido, o segundo desfaria o primeiro. */
             definirControlesHabilitados(true);
             aplicarNovoEstado(resp);
+          } else if (resp && resp.algoritmos) {
+            /* Nada carregado ainda: mesmo assim o seletor já lista os
+             * algoritmos e oferece "+ novo algoritmo…". */
+            atualizarSeletorAlgoritmos(resp);
           }
         }
 
@@ -1003,6 +1125,34 @@
 
         /* Troca o algoritmo no meio da simulação (req. 3.1). Se o C recusar,
          * mostra o motivo e o seletor volta ao algoritmo em vigor. */
+        /* Valor da opção "+ novo algoritmo…" do seletor. Não pode ser confundido
+         * com um algoritmo: nomes de algoritmo não têm '_' no começo nem
+         * passam de 15 letras sem que o C aceite, e este valor nunca vai ao C. */
+        const OPCAO_NOVO_ALGORITMO = "__novo__";
+
+        /* Monta o seletor de algoritmo a partir da lista do C ("algoritmos" no
+         * estado). A última opção, "+ novo algoritmo…", abre o diálogo de
+         * criação: ficou DENTRO do seletor, e não como botão na barra, para
+         * as ações de algoritmo ficarem num lugar só.
+         * É chamada com qualquer resposta que traga a lista, inclusive antes
+         * de existir simulação (a lista vem em GET /api/estado). */
+        function atualizarSeletorAlgoritmos(estado) {
+          const lista = estado.algoritmos || app.algoritmos;
+          app.algoritmos = lista;
+          /* + 1 = a opção "+ novo algoritmo…". Só refaz quando a lista muda
+           * de tamanho (o usuário criou um algoritmo). */
+          if (els.selAlgoritmo.options.length !== lista.length + 1) {
+            els.selAlgoritmo.innerHTML = "";
+            for (const nome of lista) els.selAlgoritmo.add(new Option(nome, nome));
+            els.selAlgoritmo.add(
+              new Option("+ novo algoritmo…", OPCAO_NOVO_ALGORITMO),
+            );
+          }
+          /* Mostra o algoritmo em vigor: depois de carregar, de trocar e de
+           * retroceder para antes de uma troca. Sem simulação, o primeiro. */
+          els.selAlgoritmo.value = estado.algoritmo || lista[0] || "";
+        }
+
         /* Muda a quantidade de CPUs (req. 3.1). Se o C recusar (0, texto,
          * simulação terminada...), mostra o motivo e o campo volta ao valor
          * em vigor. */
@@ -1021,6 +1171,13 @@
         }
 
         async function aoTrocarAlgoritmo() {
+          /* Escolheu "+ novo algoritmo…": não é troca. O seletor volta a
+           * mostrar o algoritmo em vigor e o diálogo de criação abre. */
+          if (els.selAlgoritmo.value === OPCAO_NOVO_ALGORITMO) {
+            atualizarSeletorAlgoritmos(app.atual || {});
+            abrirNovoAlgoritmo();
+            return;
+          }
           mostrarDiagnostico([], []);
           const resp = await chamarApi("/api/algoritmo", {
             method: "POST",
@@ -1028,7 +1185,8 @@
           });
           if (resp.erro) {
             mostrarDiagnostico(resp.erros || [], []);
-            aplicarNovoEstado(app.atual);
+            /* Sem simulação carregada app.atual é null: só o seletor volta. */
+            atualizarSeletorAlgoritmos(app.atual || {});
             return;
           }
           aplicarNovoEstado(resp);
@@ -1204,6 +1362,168 @@
           await enviarAlgoritmo(textoDoAlgoritmo());
         }
 
+
+        /* ------------------------------- modo manual ------------------------------ */
+
+        /* MODO MANUAL (req. 3.1, 3.2 e 3.4) -- resumo para a defesa:
+         *  - O usuário monta a simulação pela tela, sem arquivo.
+         *  - A página NÃO valida nem simula nada: ela escreve o mesmo texto
+         *    do arquivo de configuração (textoDaConfiguracao) e manda para a
+         *    mesma rota do arquivo, POST /api/carregar. Um caminho só: as
+         *    regras, os valores padrão e as mensagens são os do config.c.
+         *  - 'manual' é o modelo; a tabela é desenhada a partir dele
+         *    (desenharManual) e cada campo digitado atualiza o modelo. */
+        const manual = { tarefas: [] };
+
+        /* Cores sugeridas para as tarefas novas (req. 3.2: sugerir valores
+         * padrão). São só sugestão: o campo de cor aceita qualquer uma. */
+        const CORES_SUGERIDAS = ["#E63946", "#457B9D", "#2A9D8F", "#F4A261",
+                                 "#9B5DE5", "#00BBF9", "#F15BB5", "#8AC926"];
+
+        /* Uma tarefa nova com valores sugeridos: id "tN" ainda não usado,
+         * próxima cor da paleta, chega no tick 0, executa 1 tick a cada 10. */
+        function novaTarefaManual() {
+          let n = manual.tarefas.length + 1;
+          const usado = (id) =>
+            manual.tarefas.some((t) => t.id.toLowerCase() === id.toLowerCase());
+          while (usado("t" + n)) n++;
+          return {
+            id: "t" + n,
+            cor: CORES_SUGERIDAS[manual.tarefas.length % CORES_SUGERIDAS.length],
+            ingresso: "0",
+            duracao: "1",
+            periodo: "10",
+            prazo: "10",
+            eventos: "",
+          };
+        }
+
+        /* O MESMO texto que estaria no arquivo de configuração (req. 3.3):
+         *   algoritmo;quantum;qtde_cpus
+         *   id;cor;ingresso;duracao;periodo;prazo;lista_eventos
+         * A cor vai sem o '#': o <input type="color"> devolve "#rrggbb" e o
+         * arquivo usa RRGGBB. */
+        function textoDaConfiguracao() {
+          const cabecalho = [$("#man-algoritmo").value, $("#man-quantum").value,
+                             $("#man-cpus").value].join(";");
+          const linhas = manual.tarefas.map((t) =>
+            [t.id, t.cor.replace("#", "").toUpperCase(), t.ingresso, t.duracao,
+             t.periodo, t.prazo, t.eventos].join(";"));
+          return [cabecalho, ...linhas].join("\n");
+        }
+
+        function atualizarPreviaManual() {
+          $("#man-previa").textContent = textoDaConfiguracao();
+        }
+
+        /* Redesenha a tabela de tarefas a partir de 'manual.tarefas'. Só é
+         * chamada ao abrir e ao adicionar/remover uma linha: enquanto o
+         * usuário digita, os campos NÃO são recriados (ele perderia o foco);
+         * cada campo só atualiza o modelo e a prévia. */
+        function desenharManual() {
+          const corpo = $("#man-tabela tbody");
+          corpo.innerHTML = "";
+          manual.tarefas.forEach((tarefa, i) => {
+            const tr = document.createElement("tr");
+            /* [campo do modelo, tipo do <input>] na ordem das colunas. */
+            const colunas = [["id", "text"], ["cor", "color"], ["ingresso", "number"],
+                             ["duracao", "number"], ["periodo", "number"],
+                             ["prazo", "number"], ["eventos", "text"]];
+            for (const [campo, tipo] of colunas) {
+              const td = document.createElement("td");
+              const entrada = document.createElement("input");
+              entrada.type = tipo;
+              entrada.value = tarefa[campo];
+              entrada.setAttribute("aria-label", campo + " da tarefa " + (i + 1));
+              if (campo === "id") entrada.maxLength = 15; /* MAX_ID - 1 do C */
+              if (tipo === "number") entrada.min = "0";
+              entrada.addEventListener("input", () => {
+                tarefa[campo] = entrada.value;
+                atualizarPreviaManual();
+              });
+              td.append(entrada);
+              tr.append(td);
+            }
+            const td = document.createElement("td");
+            const remover = document.createElement("button");
+            remover.className = "botao-discreto";
+            remover.textContent = "\u00d7";
+            remover.setAttribute("aria-label", "remover a tarefa " + (i + 1));
+            remover.addEventListener("click", () => {
+              manual.tarefas.splice(i, 1);
+              desenharManual();
+            });
+            td.append(remover);
+            tr.append(td);
+            corpo.append(tr);
+          });
+          atualizarPreviaManual();
+        }
+
+        /* Abre o diálogo.
+         *  - COM simulação carregada: vem preenchido com ela (parâmetros e
+         *    tarefas, lidos do último estado). É como se edita "cada detalhe"
+         *    de uma simulação, inclusive a cor: muda e recarrega.
+         *  - SEM simulação: valores sugeridos e uma tarefa de exemplo. */
+        function abrirModoManual() {
+          const e = app.atual;
+          const sel = $("#man-algoritmo");
+          sel.innerHTML = "";
+          for (const nome of app.algoritmos) sel.add(new Option(nome, nome));
+          if (e && e.carregado) {
+            sel.value = e.algoritmo;
+            $("#man-quantum").value = e.quantum;
+            $("#man-cpus").value = e.ncpus;
+            manual.tarefas = e.tarefas.map((t) => ({
+              id: t.id,
+              cor: t.cor,
+              ingresso: String(t.ingresso),
+              duracao: String(t.duracao),
+              periodo: String(t.periodo),
+              prazo: String(t.prazo),
+              eventos: t.eventos || "",
+            }));
+          } else {
+            $("#man-quantum").value = 0;
+            $("#man-cpus").value = 1;
+            manual.tarefas = [];
+            manual.tarefas.push(novaTarefaManual());
+          }
+          $("#man-erros").innerHTML = "";
+          desenharManual();
+          $("#dlg-manual").showModal();
+        }
+
+        function aoAdicionarTarefaManual() {
+          manual.tarefas.push(novaTarefaManual());
+          desenharManual();
+        }
+
+        /* "carregar simulação": manda o texto para a MESMA rota do arquivo.
+         * Recusado: os erros do C aparecem dentro do diálogo (cada um cita a
+         * linha da prévia) e nada do que foi digitado se perde.
+         * Aceito: mesmo caminho de aoCarregar -- avisos, botões, estado. */
+        async function aoCarregarManual() {
+          const lista = $("#man-erros");
+          lista.innerHTML = "";
+          const resp = await chamarApi("/api/carregar", {
+            method: "POST",
+            body: textoDaConfiguracao(),
+          });
+          if (resp.erro) {
+            for (const msg of resp.erros || []) {
+              const li = document.createElement("li");
+              li.textContent = msg; /* textContent: a mensagem traz texto digitado */
+              lista.append(li);
+            }
+            return;
+          }
+          $("#dlg-manual").close();
+          mostrarDiagnostico([], resp.avisos || []);
+          definirControlesHabilitados(true);
+          aplicarNovoEstado(resp);
+        }
+
         /* ------------------------- aplicar estado recebido ------------------------ */
 
         function aplicarNovoEstado(estado) {
@@ -1250,22 +1570,8 @@
           els.btnAvancar.disabled = estado.terminada;
           els.btnExecutarTudo.disabled = estado.terminada;
 
-          /* Opções do seletor: vêm da lista do C e são refeitas quando ela muda
-           * de tamanho (o usuário adicionou um algoritmo em "novo algoritmo"). */
-          const lista = estado.algoritmos || [];
-          if (els.selAlgoritmo.options.length !== lista.length) {
-            els.selAlgoritmo.innerHTML = "";
-            for (const nome of lista) {
-              const op = document.createElement("option");
-              op.value = nome;
-              op.textContent = nome;
-              els.selAlgoritmo.appendChild(op);
-            }
-          }
-          /* Mostra o algoritmo em vigor: depois de carregar, de trocar e de
-           * retroceder para antes de uma troca. */
-          els.selAlgoritmo.value = estado.algoritmo;
-          els.selAlgoritmo.disabled = estado.terminada;
+          /* Seletor de algoritmo: opções vindas do C + o algoritmo em vigor. */
+          atualizarSeletorAlgoritmos(estado);
 
           /* Campo de CPUs: mostra a quantidade em vigor (também depois de
            * retroceder para antes de uma mudança). Só faz sentido com uma
@@ -1441,7 +1747,14 @@
         els.btnFecharInspetor.addEventListener("click", fecharInspetor);
         els.selAlgoritmo.addEventListener("change", aoTrocarAlgoritmo);
         $("#ent-cpus").addEventListener("change", aoAlterarCpus);
-        $("#btn-novo-algoritmo").addEventListener("click", abrirNovoAlgoritmo);
+        $("#btn-modo-manual").addEventListener("click", abrirModoManual);
+        $("#btn-man-fechar").addEventListener("click", () => $("#dlg-manual").close());
+        $("#btn-man-cancelar").addEventListener("click", () => $("#dlg-manual").close());
+        $("#btn-man-tarefa").addEventListener("click", aoAdicionarTarefaManual);
+        $("#btn-man-carregar").addEventListener("click", aoCarregarManual);
+        /* Os três parâmetros do sistema também mudam a prévia na hora. */
+        for (const id of ["#man-algoritmo", "#man-quantum", "#man-cpus"])
+          $(id).addEventListener("input", atualizarPreviaManual);
         $("#btn-alg-fechar").addEventListener("click", () =>
           $("#dlg-algoritmo").close(),
         );
