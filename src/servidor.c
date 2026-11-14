@@ -404,6 +404,27 @@ static void rota_algoritmo(Simulacao *sim, soquete_t c, const Pedido *p)
     responder_erros(c, &diag);
 }
 
+/* POST /api/cpus (req. geral 2 e 3.1): muda a quantidade de CPUs com a
+ * simulação carregada. O corpo é só o número ("4"). ler_inteiro, e não
+ * atoi: o atoi transforma "abc" em 0 sem avisar. Quem valida a faixa e
+ * redistribui as tarefas é o núcleo (sim_alterar_cpus). */
+static void rota_cpus(Simulacao *sim, soquete_t c, const Pedido *p)
+{
+    char motivo[MAX_DIAG_TXT];
+    int n;
+
+    if (p->corpo == NULL || !ler_inteiro(p->corpo, &n))
+        diag_erro(&diag, "quantidade de CPUs invalida (esperado um numero inteiro)");
+    else if (sim_alterar_cpus(sim, n, motivo, sizeof motivo))
+    {
+        responder_estado(sim, c, NULL);
+        return;
+    }
+    else
+        diag_erro(&diag, "%s", motivo);
+    responder_erros(c, &diag);
+}
+
 /* POST /api/algoritmo_novo (req. 4.2): cria um algoritmo sem recompilar.
  * O corpo é a definição em texto (nome;descricao;preemptivo e uma linha
  * campo;sentido por critério) -- o conteúdo de um .txt escolhido na página
@@ -585,6 +606,10 @@ static void atender(Simulacao *sim, soquete_t c)
     else if (post && strcmp(p.caminho, "/api/algoritmo_novo") == 0)
     {
         rota_algoritmo_novo(sim, c, &p);
+    }
+    else if (post && strcmp(p.caminho, "/api/cpus") == 0)
+    {
+        rota_cpus(sim, c, &p);
     }
     else if (get && strcmp(p.caminho, "/api/gantt") == 0)
     {

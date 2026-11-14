@@ -62,6 +62,10 @@ typedef struct {
     /* ---- muda a cada tick (núcleo, kernel.c) ---- */
     EstadoTarefa estado;
     int  exec_restante;     /* quanto falta da execução atual (Ci rest.)     */
+    int  proxima_ativacao;  /* tick da PRÓXIMA chegada. Fica guardado (em
+                             * vez de calculado por tick % periodo) para o
+                             * período poder mudar no meio da simulação
+                             * sem bagunçar as chegadas (ver ativar())    */
     int  quantum_restante;  /* quanto falta do quantum na CPU atual          */
     int  ativacao;          /* tick da chegada da execução atual             */
     int  deadline_abs;      /* prazo absoluto = ativacao + prazo             */

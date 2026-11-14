@@ -160,8 +160,15 @@ static void ativar_tarefa(TCB *t, int tick)
     t->sorteada = 0;
 }
 
-/* ATIVAÇÃO — uma tarefa periódica INATIVA vira PRONTA quando o tick atual
- * cai exatamente em ingresso + k*periodo, para algum k >= 0. */
+/* ATIVAÇÃO — uma tarefa periódica chega quando o relógio alcança o tick
+ * guardado em proxima_ativacao; nesse momento a chegada seguinte já fica
+ * agendada (proxima_ativacao += periodo).
+ *
+ * Com o período fixo isso dá os mesmos ticks de antes (ingresso + k*periodo).
+ * A diferença aparece quando o usuário EDITA o período: a conta antiga,
+ * (tick - ingresso) % periodo == 0, supunha o período novo desde o ingresso
+ * e mudava a fase de todas as chegadas. Guardando a próxima chegada, o
+ * período novo só muda o intervalo dali em diante. */
 static void ativar(Simulacao *s)
 {
     Estado *executando = &s->atual;
@@ -169,11 +176,11 @@ static void ativar(Simulacao *s)
     {
         TCB *tarefa = &executando->tarefas[i];
         int chegou = tarefa->periodo > 0 &&
-                     executando->tick >= tarefa->ingresso &&
-                     (executando->tick - tarefa->ingresso) % tarefa->periodo == 0;
-
+                     executando->tick == tarefa->proxima_ativacao;
         if (!chegou)
             continue;
+        tarefa->proxima_ativacao += tarefa->periodo; /* agenda a seguinte */
+
         if (tarefa->estado == EST_INATIVA)
             ativar_tarefa(tarefa, executando->tick); /* livre: começa já */
         else if (tarefa->estado != EST_CONCLUIDA)
@@ -635,11 +642,12 @@ static int aplicar_edicao(Simulacao *s, const char *id_tarefa, const char *campo
         else
             tarefa->estado = novo_estado;
         return 1;
+
     }
 
-    /* ---- campos numéricos: exec_restante, duracao e prazo ---- */
+    /* ---- campos numéricos: exec_restante, duracao, periodo e prazo ---- */
     if (strcmp(campo, "exec_restante") != 0 && strcmp(campo, "duracao") != 0 &&
-        strcmp(campo, "prazo") != 0)
+        strcmp(campo, "periodo") != 0 && strcmp(campo, "prazo") != 0)
     {
         snprintf(motivo, motivo_tam,
                  "Campo '%s' nao existe ou nao permite edicao manual.", campo);
@@ -697,6 +705,49 @@ static int aplicar_edicao(Simulacao *s, const char *id_tarefa, const char *campo
         tarefa->duracao = numero;
         return 1;
     }
+    /* ---- campo PERIODO ---- */
+    if (strcmp(campo, "periodo") == 0)
+    {
+        /* Período 0 seria tarefa aperiódica, que só existe no Projeto B;
+         * negativo é erro (req. 3.3). */
+        if (numero < 1)
+        {
+            snprintf(motivo, motivo_tam,
+                     "O valor %d nao cumpre os pre requisitos (deve ser >= 1).", numero);
+            return 0;
+        }
+        /* REGRA: o período novo conta a partir da ÚLTIMA chegada.
+         *   última chegada = proxima_ativacao - período antigo
+         *   nova próxima   = última chegada + período novo
+         * Se a tarefa ainda não chegou nenhuma vez (proxima_ativacao ainda é
+         * o ingresso), a 1ª chegada continua no ingresso e só o intervalo
+         * entre as seguintes muda. */
+        if (tarefa->proxima_ativacao > tarefa->ingresso)
+        {
+            int ultima = tarefa->proxima_ativacao - tarefa->periodo;
+            int nova = ultima + numero;
+            /* Período encurtado a ponto de a próxima chegada já ter
+             * passado: ela acontece no tick seguinte, nunca no passado
+             * (a ativar() só dispara quando tick == proxima_ativacao). */
+            if (nova <= s->atual.tick)
+                nova = s->atual.tick + 1;
+            tarefa->proxima_ativacao = nova;
+        }
+        /* O PRAZO ACOMPANHA, mas só se era igual ao período (Di = Pi, a
+         * premissa do RM e o padrão do arquivo quando o prazo vem vazio).
+         * Sem isso, encurtar o período de 10 para 6 deixaria Di = 10 > Pi
+         * sem o usuário ter pedido. Se o prazo era DIFERENTE do período
+         * (Di < Pi, caso do DM e dos testes 16), foi uma escolha explícita
+         * e fica como está.
+         * O prazo novo vale a partir da próxima chegada: deadline_abs não é
+         * tocado, então a execução em andamento mantém o deadline que tinha
+         * (mesma regra da edição da duração). */
+        if (tarefa->prazo == tarefa->periodo)
+            tarefa->prazo = numero;
+        /* No RM a prioridade muda na hora: o critério lê este campo. */
+        tarefa->periodo = numero;
+        return 1;
+    }
     /* ---- campo PRAZO (o único que sobrou) ---- */
     if (numero < 0)
     {
@@ -738,6 +789,104 @@ int sim_editar_tarefa(Simulacao *s, const char *id_tarefa, const char *campo,
      * Libera a foto velha e guarda uma CÓPIA da nova, como em retroceder. */
     estado_liberar(&s->historico[s->n_hist - 1]);
     s->historico[s->n_hist - 1] = estado_clonar(&s->atual);
+
+    /* O limite de ticks foi calculado em sim_iniciar com os períodos e as
+     * durações do arquivo. Uma edição que os aumenta empurra o fim natural
+     * para mais longe, e a simulação bateria no limite antigo antes de
+     * terminar. Só cresce: nunca corta o que já rodou. */
+    {
+        int novo = calcular_limite(&s->atual);
+        if (novo > s->limite_ticks)
+            s->limite_ticks = novo;
+    }
+    return 1;
+}
+
+/* ALTERAR A QUANTIDADE DE CPUs com a simulação carregada (req. geral 2 e
+ * 3.1). A ordem dos passos importa:
+ *   1. recusas, antes de mexer em qualquer coisa;
+ *   2. ao REDUZIR: as tarefas das CPUs que vão sair voltam para PRONTA --
+ *      antes do realloc, senão ficariam apontando para CPU que não existe;
+ *   3. realloc do vetor de CPUs (ponteiro temporário: se falhar, o vetor
+ *      antigo continua valendo);
+ *   4. ao AUMENTAR: as CPUs novas nascem vazias;
+ *   5. reescalonar, para não sobrar tarefa pronta com CPU livre (req. 1.2);
+ *   6. trocar a foto do tick atual, como na edição de tarefa.
+ * Retroceder desfaz sozinho: cada foto do histórico tem o seu próprio
+ * ncpus e o seu próprio vetor de CPUs. */
+int sim_alterar_cpus(Simulacao *s, int n, char *motivo, int motivo_tam)
+{
+    Estado *e = &s->atual;
+    CPU *maior;
+    int antigas = e->ncpus;
+
+    if (s->esc == NULL) /* esc só existe depois de sim_iniciar dar certo */
+    {
+        snprintf(motivo, motivo_tam, "Nenhuma simulacao carregada.");
+        return 0;
+    }
+    if (s->terminada)
+    {
+        snprintf(motivo, motivo_tam,
+                 "A simulacao ja terminou; retroceda para alterar as CPUs.");
+        return 0;
+    }
+    if (n < 1 || n > MAX_CPUS)
+    {
+        snprintf(motivo, motivo_tam,
+                 "A quantidade de CPUs deve ficar entre 1 e %d (veio %d).", MAX_CPUS, n);
+        return 0;
+    }
+    if (n == antigas)
+    {
+        snprintf(motivo, motivo_tam, "O sistema ja tem %d CPU(s).", n);
+        return 0;
+    }
+
+    /* 2) Reduzindo: quem ocupa uma CPU que vai sair volta para a fila. */
+    for (int c = n; c < antigas; c++)
+    {
+        if (e->cpus[c].tarefa >= 0)
+        {
+            TCB *t = &e->tarefas[e->cpus[c].tarefa];
+            soltar_cpu(e, t);
+            t->estado = EST_PRONTA;
+        }
+    }
+
+    /* 3) O vetor muda de tamanho. */
+    maior = realloc(e->cpus, (size_t)n * sizeof(CPU));
+    if (maior == NULL)
+    {
+        snprintf(motivo, motivo_tam, "Falta de memoria para alterar as CPUs.");
+        return 0;
+    }
+    e->cpus = maior;
+
+    /* 4) Aumentando: as novas começam vazias e sem tempo desligada. */
+    for (int c = antigas; c < n; c++)
+    {
+        e->cpus[c].id = c;
+        e->cpus[c].tarefa = -1;
+        e->cpus[c].ticks_desligada = 0;
+    }
+    e->ncpus = n;
+
+    /* 5) Reescalonar. A escalonar() soma 1 em ticks_desligada de toda CPU
+     * vazia, e as CPUs antigas que estão vazias já foram contadas neste
+     * tick: desconta antes, para o tick não valer por dois. */
+    for (int c = 0; c < antigas && c < n; c++)
+    {
+        if (e->cpus[c].tarefa == -1)
+            e->cpus[c].ticks_desligada--;
+    }
+    escalonar(s);
+
+    /* 6) A foto do tick atual passa a ser a nova (Gantt e retroceder). */
+    estado_liberar(&s->historico[s->n_hist - 1]);
+    s->historico[s->n_hist - 1] = estado_clonar(e);
+    snprintf(s->ultimo_evento, sizeof s->ultimo_evento,
+             "CPUs alteradas de %d para %d no tick %d", antigas, n, e->tick);
     return 1;
 }
 

@@ -178,6 +178,7 @@ static const struct {
     { "none",       MARCA_NENHUMA, "pronta" },
     { "url(#susp)", MARCA_NENHUMA, "suspensa" },
     { "url(#desl)", MARCA_NENHUMA, "CPU desligada" },
+    { "#e4e4e4",    MARCA_NENHUMA, "CPU inexistente" },
     { NULL,         MARCA_CHEGADA, "chegada" },
     { NULL,         MARCA_TERMINO, "término" },
     { NULL,         MARCA_PRAZO,   "prazo perdido" },
@@ -210,10 +211,18 @@ int gantt_svg(const Simulacao *s, FILE *saida, int tick_ini, int tick_fim)
         tick_fim >= s->n_hist)
         return 0;
 
-    /* Tarefas e CPUs são as mesmas em todas as fotos do histórico. */
+    /* As tarefas são as mesmas em todas as fotos do histórico. As CPUs NÃO:
+     * o usuário pode ter mudado a quantidade no meio (sim_alterar_cpus), e
+     * cada foto guarda o seu ncpus. O gráfico tem uma linha para cada CPU
+     * que existiu em algum tick da janela: nc = o MAIOR ncpus. */
     e = &s->historico[tick_fim];
     nt = e->ntarefas;
-    nc = e->ncpus;
+    nc = 0;
+    for (int t = tick_ini; t <= tick_fim; t++)
+    {
+        if (s->historico[t].ncpus > nc)
+            nc = s->historico[t].ncpus;
+    }
     ordem = malloc((nt > 0 ? nt : 1) * sizeof *ordem);
     if (ordem == NULL)
         return 0;
@@ -248,13 +257,23 @@ int gantt_svg(const Simulacao *s, FILE *saida, int tick_ini, int tick_fim)
     {
         int y = MARG_T + c * LIN_H;
         fprintf(saida, "<text x=\"%d\" y=\"%d\" text-anchor=\"end\">CPU %d</text>\n",
-                MARG_E - 8, y + LIN_H / 2 + 4, e->cpus[c].id);
+                MARG_E - 8, y + LIN_H / 2 + 4, c); /* id da CPU = posição */
         for (int t = tick_ini; t <= tick_fim; t++)
         {
             const Estado *h = &s->historico[t];
             int x = MARG_E + (t - tick_ini) * CEL_W;
-            int idx = h->cpus[c].tarefa;
+            int idx;
             char cor[8];
+            /* Neste tick o sistema tinha menos CPUs: esta não existia.
+             * Célula cinza claro, diferente da hachura de "desligada"
+             * (existia, mas sem tarefa). O teste vem ANTES de ler
+             * h->cpus[c]: ler além de h->ncpus seria sair do vetor. */
+            if (c >= h->ncpus)
+            {
+                celula(saida, x, y, "#e4e4e4", "#e4e4e4");
+                continue;
+            }
+            idx = h->cpus[c].tarefa;
             if (idx < 0)
             {
                 celula(saida, x, y, "url(#desl)", "#ccc");

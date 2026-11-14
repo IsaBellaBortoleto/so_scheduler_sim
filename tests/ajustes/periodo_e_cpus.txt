@@ -1,0 +1,15 @@
+# TESTE (ajuste 3): editar o PERIODO de uma tarefa e a QUANTIDADE DE CPUs
+# durante a simulacao. 1 CPU, 3 tarefas de duracao 3.
+# ROTEIRO (resultado observado em tests/ajustes/LEIAME.txt):
+#   1. carregar: so a t1 executa (menor periodo); t2 e t3 esperam.
+#   2. campo "CPUs" -> 3: t2 e t3 ganham CPU na hora.
+#   3. avancar 2 ticks, "CPUs" -> 1: duas tarefas voltam para a fila.
+#   4. retroceder: voltam as 3 CPUs.
+#   5. clicar na t1, campo "Pi (periodo)", valor 6: a coluna "prox." passa
+#      de 10 para 6.
+#   6. exportar SVG: linhas CPU 0 a CPU 2, com "CPU inexistente" onde havia
+#      menos CPUs.
+RM;0;1
+t1;E63946;0;3;10;10
+t2;457B9D;0;3;12;12
+t3;2A9D8F;0;3;14;14

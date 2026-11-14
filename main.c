@@ -695,6 +695,127 @@ static void teste_editar(void)
     assert(!sim_editar_tarefa(&s, "1", "exec_restante", "6", m, sizeof m));
     sim_liberar(&s);
 
+    /* EDITAR O PERIODO (ajuste da defesa A). A proxima chegada fica guardada
+     * no TCB; o periodo novo conta a partir da ULTIMA chegada. */
+    {
+        Simulacao z;
+        int k;
+        memset(&z, 0, sizeof z);
+        iniciar_de_texto(&z, "RM;0;1\n1;;0;1;10;10");
+        /* Chegou no tick 0; a seguinte ja esta agendada para o 10. */
+        assert(z.atual.tarefas[0].proxima_ativacao == 10);
+        for (k = 0; k < 4; k++)
+            assert(sim_avancar(&z));                       /* tick 4 */
+        assert(!sim_editar_tarefa(&z, "1", "periodo", "0", m, sizeof m));   /* aperiodica: Projeto B */
+        assert(!sim_editar_tarefa(&z, "1", "periodo", "abc", m, sizeof m));
+        /* 10 -> 6: ultima chegada no 0, entao a proxima passa a ser no 6. */
+        assert(sim_editar_tarefa(&z, "1", "periodo", "6", m, sizeof m));
+        assert(z.atual.tarefas[0].periodo == 6 && z.atual.tarefas[0].proxima_ativacao == 6);
+        /* O prazo era igual ao periodo (Di = Pi): acompanha. A execucao em
+         * andamento (chegou no tick 0) mantem o deadline antigo, 0 + 10. */
+        assert(z.atual.tarefas[0].prazo == 6 && z.atual.tarefas[0].deadline_abs == 10);
+        assert(sim_avancar(&z) && sim_avancar(&z));        /* tick 6: chegou */
+        assert(z.atual.tarefas[0].ativacao == 6 && z.atual.tarefas[0].proxima_ativacao == 12);
+        assert(z.atual.tarefas[0].deadline_abs == 12);     /* chegada nova: prazo novo (6 + 6) */
+        for (k = 0; k < 5; k++)
+            assert(sim_avancar(&z));                       /* tick 11 */
+        /* 6 -> 3: a conta daria tick 9, que ja passou. Chega no tick seguinte. */
+        assert(sim_editar_tarefa(&z, "1", "periodo", "3", m, sizeof m));
+        assert(z.atual.tarefas[0].proxima_ativacao == 12);
+        /* Retroceder desfaz a edicao: a foto do tick 10 ainda tem periodo 6. */
+        assert(sim_retroceder(&z) && z.atual.tarefas[0].periodo == 6);
+        sim_liberar(&z);
+
+        /* Prazo DIFERENTE do periodo (Di = 4 < Pi = 10): escolha explicita
+         * do arquivo, nao acompanha a edicao do periodo. */
+        memset(&z, 0, sizeof z);
+        iniciar_de_texto(&z, "RM;0;1\n1;;0;1;10;4");
+        assert(sim_editar_tarefa(&z, "1", "periodo", "8", m, sizeof m));
+        assert(z.atual.tarefas[0].periodo == 8 && z.atual.tarefas[0].prazo == 4);
+        sim_liberar(&z);
+
+        /* Editar ANTES do ingresso: a 1a chegada continua no ingresso. */
+        memset(&z, 0, sizeof z);
+        iniciar_de_texto(&z, "RM;0;1\n1;;5;1;10;10");
+        assert(sim_editar_tarefa(&z, "1", "periodo", "4", m, sizeof m));
+        assert(z.atual.tarefas[0].proxima_ativacao == 5 && z.atual.tarefas[0].periodo == 4);
+        for (k = 0; k < 9; k++)
+            assert(sim_avancar(&z));                       /* tick 9: chegou no 5 e no 9 */
+        assert(z.atual.tarefas[0].proxima_ativacao == 13);
+        sim_liberar(&z);
+    }
+
+    /* ALTERAR A QUANTIDADE DE CPUs (ajuste da defesa A). Tres tarefas de
+     * duracao 3 e uma CPU: so a de menor periodo executa. */
+    {
+        Simulacao z;
+        FILE *g;
+        static char svg[60000];
+        size_t n;
+        int k, exec = 0;
+        memset(&z, 0, sizeof z);
+        assert(!sim_alterar_cpus(&z, 2, m, sizeof m));     /* nada carregado */
+        iniciar_de_texto(&z, "RM;0;1\n1;;0;3;10\n2;;0;3;12\n3;;0;3;14");
+        assert(!sim_alterar_cpus(&z, 0, m, sizeof m));
+        assert(!sim_alterar_cpus(&z, 1, m, sizeof m) && strstr(m, "ja tem"));
+        assert(!sim_alterar_cpus(&z, MAX_CPUS + 1, m, sizeof m));
+        assert(z.atual.ncpus == 1);                        /* recusada: nada mudou */
+
+        /* 1 -> 3: as duas que esperavam ganham CPU NA HORA (req. 1.2), e a
+         * foto do tick 0 passa a ter 3 CPUs. */
+        assert(sim_alterar_cpus(&z, 3, m, sizeof m));
+        assert(z.atual.ncpus == 3 && z.historico[0].ncpus == 3);
+        for (k = 0; k < 3; k++)
+        {
+            assert(z.atual.tarefas[k].estado == EST_EXECUTANDO);
+            assert(z.atual.cpus[k].tarefa >= 0 && z.atual.cpus[k].ticks_desligada == 0);
+        }
+
+        /* 3 -> 1 no tick 1: sobra uma executando; as outras voltam para a
+         * fila, sem CPU. */
+        assert(sim_avancar(&z));
+        assert(sim_alterar_cpus(&z, 1, m, sizeof m));
+        for (k = 0; k < 3; k++)
+        {
+            exec += (z.atual.tarefas[k].estado == EST_EXECUTANDO);
+            assert(z.atual.tarefas[k].estado == EST_EXECUTANDO ||
+                   (z.atual.tarefas[k].estado == EST_PRONTA && z.atual.tarefas[k].cpu == -1));
+        }
+        assert(exec == 1 && z.atual.cpus[0].tarefa >= 0);
+
+        /* Retroceder desfaz: a foto do tick 0 tem 3 CPUs. */
+        assert(sim_retroceder(&z) && z.atual.ncpus == 3 && z.atual.cpus[2].tarefa >= 0);
+
+        /* 3 -> 5: as duas novas ficam desligadas, contadas UMA vez; as
+         * antigas nao sao contadas de novo. */
+        assert(sim_alterar_cpus(&z, 5, m, sizeof m));
+        assert(z.atual.cpus[3].ticks_desligada == 1 && z.atual.cpus[4].ticks_desligada == 1);
+        assert(z.atual.cpus[0].ticks_desligada == 0);
+        /* Aumentar de novo no MESMO tick: as que ja estavam vazias continuam
+         * com 1 (o tick nao vale por dois). */
+        assert(sim_alterar_cpus(&z, 6, m, sizeof m));
+        assert(z.atual.cpus[3].ticks_desligada == 1 && z.atual.cpus[5].ticks_desligada == 1);
+
+        /* Gantt com quantidade de CPUs diferente ao longo do tempo: 6 CPUs
+         * nos ticks 0 e 1, 2 CPUs do tick 2 em diante. Tem que desenhar as 6
+         * linhas, marcar as que deixaram de existir e NAO ler fora do vetor. */
+        assert(sim_avancar(&z) && sim_avancar(&z));
+        assert(sim_alterar_cpus(&z, 2, m, sizeof m));
+        assert(sim_avancar(&z));
+        g = fopen("autoteste_gantt3.svg", "w+b");
+        assert(g != NULL);
+        assert(gantt_svg(&z, g, 0, z.n_hist - 1) == 1);
+        rewind(g);
+        n = fread(svg, 1, sizeof svg - 1, g);
+        svg[n] = '\0';
+        fclose(g);
+        remove("autoteste_gantt3.svg");
+        assert(strstr(svg, ">CPU 5<") != NULL && strstr(svg, ">CPU 6<") == NULL);
+        assert(strstr(svg, "CPU inexistente") != NULL);
+        assert(strstr(svg, "fill=\"#e4e4e4\"") != NULL);
+        sim_liberar(&z);
+    }
+
     printf("autoteste: editar tarefa ... ok\n");
 }
 

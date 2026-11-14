@@ -26,3 +26,46 @@ ajuste: os 18 arquivos 01 a 16 terminam nos mesmos ticks de antes (282, 922,
 2748, 93, 111, 7250, 183...). O sorteio agora mistura as LETRAS dos ids, entao
 QUAL tarefa ganha um sorteio pode ser diferente do que era com ids numericos
 (arquivos 02 e 05); o resultado continua igual a cada execucao.
+
+
+AJUSTE 3 - EDITAR O PERIODO E A QUANTIDADE DE CPUs
+--------------------------------------------------
+"Observado" = resultado em 14/11/2026.
+
+periodo_e_cpus.txt               3 tarefas de duracao 3 (periodos 10, 12 e 14),
+                                 RM, 1 CPU. Seguindo o roteiro do arquivo:
+                                 1. carregar: CPU 0 = t1; t2 e t3 PRONTAS
+                                 2. CPUs -> 3 no tick 0: as tres EXECUTANDO;
+                                    "CPUs alteradas de 1 para 3 no tick 0"
+                                 3. avancar 2 ticks, CPUs -> 1: so a t1 executa,
+                                    t2 e t3 voltam para PRONTA
+                                 4. retroceder: tick 1, de novo com 3 CPUs
+                                 5. t1, periodo 10 -> 6: coluna "prox." passa
+                                    de 10 para 6 e o Di tambem vira 6
+                                 6. SVG exportado: linhas CPU 0, 1 e 2 e o item
+                                    "CPU inexistente" na legenda
+
+Recusas (mensagem na tela, nada muda):
+  CPUs = 0 ou 1000    'A quantidade de CPUs deve ficar entre 1 e 256 (veio 0).'
+  CPUs = abc          'quantidade de CPUs invalida (esperado um numero inteiro)'
+  CPUs = valor atual  'O sistema ja tem 3 CPU(s).'
+  periodo = 0         'O valor 0 nao cumpre os pre requisitos (deve ser >= 1).'
+                      (periodo 0 e tarefa aperiodica: Projeto B)
+
+REGRAS PARA EXPLICAR NA DEFESA
+- Periodo novo conta a partir da ULTIMA chegada da tarefa. Se a conta cair
+  num tick que ja passou, a chegada acontece no tick seguinte. Antes do
+  ingresso, a 1a chegada continua no ingresso.
+- O prazo acompanha o periodo SO se era igual a ele (Di = Pi, premissa do
+  RM): 10/10 vira 6/6. Se era diferente (Di < Pi, caso do DM), fica como
+  esta. O prazo novo vale a partir da proxima chegada; a execucao em
+  andamento mantem o deadline que tinha.
+- Com RM, mudar o periodo muda a prioridade na hora.
+- Mudar as CPUs vale ja para o tick atual: ao aumentar, quem esperava ganha
+  CPU; ao reduzir, quem estava nas CPUs retiradas volta para a fila.
+- Retroceder desfaz as duas coisas (cada foto do historico guarda o seu
+  periodo e a sua quantidade de CPUs).
+
+REGRESSAO depois do ajuste 3 (14/11/2026): os 18 arquivos de tests/projeto_a
+e o id_texto.txt terminam nos mesmos ticks de antes (282, 922, 2748, 93, 94,
+111, 84, 111, 56, 56, 190, 183, 3250, 475, 475, 7250, 183, 183 e 109).

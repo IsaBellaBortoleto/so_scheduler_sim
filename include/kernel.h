@@ -52,4 +52,16 @@ int sim_trocar_algoritmo(Simulacao *s, const char *nome,
  * faltou memória. Liberar SEMPRE com sim_liberar_copia. */
 int  sim_copiar_ate_o_fim(const Simulacao *s, Simulacao *copia);
 void sim_liberar_copia(const Simulacao *s, Simulacao *copia);
+
+/* Teto da quantidade de CPUs ao alterar durante a simulação. Não é limite
+ * do enunciado ("no máximo N"): só impede que um número absurdo digitado
+ * na tela vá direto para o realloc. */
+#define MAX_CPUS 256
+
+/* Muda a quantidade de CPUs com a simulação carregada (req. geral 2 e 3.1:
+ * configurar antes e durante). Ao reduzir, as tarefas das CPUs retiradas
+ * voltam para a fila de prontas; em seguida o escalonador redistribui.
+ * Vale já para o intervalo do tick atual, e retroceder desfaz.
+ * Devolve 1 se mudou; 0 se recusou, com o porquê em 'motivo'. */
+int sim_alterar_cpus(Simulacao *s, int n, char *motivo, int motivo_tam);
 #endif 

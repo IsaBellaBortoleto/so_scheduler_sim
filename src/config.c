@@ -487,6 +487,9 @@ int config_carregar_texto(const char *conteudo, Estado *e, Diagnostico *d)
 
         t.ingresso = campo_int_min(d, num, "ingresso", campos[2],
                                    0, 0, &ok);
+        /* A 1ª chegada é no ingresso; daí em diante a ativar() do núcleo
+         * agenda a seguinte somando o período. */
+        t.proxima_ativacao = t.ingresso;
 
         t.duracao = campo_int_min(d, num, "duracao", campos[3],
                                   0, 1, &ok);

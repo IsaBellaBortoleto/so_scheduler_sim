@@ -170,6 +170,9 @@ static void sai_tarefa(Saida *s, const TCB *t)
         t->exec_restante, t->quantum_restante);
     sai(s, "\"ativacao\":%d,\"deadline_abs\":%d,\"ativacoes\":%d,",
         t->ativacao, t->deadline_abs, t->ativacoes);
+    /* Tick da próxima chegada: a página mostra na tabela, para o usuário
+     * ver o efeito de editar o período. */
+    sai(s, "\"proxima_ativacao\":%d,", t->proxima_ativacao);
     sai(s, "\"perdeu_prazo\":%d,\"cpu\":%d,\"sorteada\":%d,",
         t->perdeu_prazo, t->cpu, t->sorteada);
     /* 'eventos' veio do arquivo do usuário: pode ter aspas, tem que escapar. */
