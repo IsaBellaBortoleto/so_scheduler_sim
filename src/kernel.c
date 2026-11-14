@@ -5,14 +5,26 @@
  *
  * O estado guardado em `s->atual` está SEMPRE "pronto para ser desenhado":
  * as ativações do instante já ocorreram e o escalonador já decidiu quem ocupa
- * cada CPU. Avançar um tick é, portanto:
+ * cada CPU. Avançar um tick imita um SO de verdade, em que o TIMER gera uma
+ * interrupção e o núcleo trata essa interrupção:
  *
- *    executar()          consome 1 unidade de tempo das tarefas nas CPUs
- *    tick++              o relógio global anda (requisito 1.1)
- *    verificar_prazos()  quem passou do deadline é marcado (requisito 3.3)
- *    ativar()            tarefas periódicas que vencem agora viram PRONTAS
- *    escalonar()         escolhe quem ocupa cada CPU no próximo intervalo
- *    snapshot()          congela tudo em historico[tick] (requisito 1.5.2)
+ *    sim_avancar()
+ *      relogio_avancar()       tick++ : o ÚNICO lugar em que o tempo anda
+ *        tratar_tick()         a "interrupção do relógio":
+ *          executar()          quem está na CPU trabalha 1 unidade
+ *          verificar_prazos()  quem passou do deadline é marcado (req. 3.3)
+ *          ativar()            periódicas que vencem agora viram PRONTAS
+ *          escalonar()         SÓ SE houve evento (senão só conta CPU ociosa)
+ *      snapshot()              congela tudo em historico[tick] (req. 1.5.2)
+ *
+ * VERIFICAR SEMPRE, AGIR SÓ QUANDO PRECISA (req. 1.1). Todo tick o núcleo
+ * verifica se algo aconteceu; o escalonador só roda se aconteceu um EVENTO
+ * (chegada, término, fim de quantum, edição, troca de algoritmo,
+ * retrocesso), marcado em s->precisa_escalonar. Sem evento a ordem não muda:
+ * a prioridade não é calculada, os critérios só LEEM campos do TCB (período
+ * no RM, deadline_abs no EDF), e esses campos só mudam em evento. Exceção:
+ * critério exec_restante (ex. SRTF), que muda a cada tick de execução --
+ * para ele todo tick é evento (escalonador_muda_com_a_execucao).
  *
  * Manter essa ordem fixa é o que torna a simulação DETERMINÍSTICA: rodar,
  * retroceder e avançar de novo produz exatamente o mesmo resultado.
@@ -182,9 +194,14 @@ static void ativar(Simulacao *s)
         tarefa->proxima_ativacao += tarefa->periodo; /* agenda a seguinte */
 
         if (tarefa->estado == EST_INATIVA)
+        {
             ativar_tarefa(tarefa, executando->tick); /* livre: começa já */
+            s->precisa_escalonar = 1; /* EVENTO: uma PRONTA nova na fila */
+        }
         else if (tarefa->estado != EST_CONCLUIDA)
-            tarefa->pendentes++; /* ocupada: espera a vez */
+            tarefa->pendentes++; /* ocupada: espera a vez. NÃO é evento: a
+                                  * tarefa já estava na disputa e a fila de
+                                  * prontos não mudou. */
     }
 }
 
@@ -193,19 +210,21 @@ static void ativar(Simulacao *s)
  * CPUs, não uma fila por processador) e a ociosidade é minimizada: só sobra
  * CPU desligada se realmente não houver tarefa pronta.
  *
- * Reavalia do zero a cada tick quem deve ocupar cada CPU (é isso que torna o
- * escalonamento PREEMPTIVO): uma tarefa só continua na mesma CPU se ainda
+ * Roda só em evento (ver o topo do arquivo). Quando roda, reavalia do zero quem deve ocupar cada CPU (é isso que torna
+ * o escalonamento PREEMPTIVO): uma tarefa só continua na mesma CPU se ainda
  * estiver entre as mais prioritárias segundo escalonador_ordenar (que já
  * aplica os critérios de desempate do requisito 4.3, dando vantagem a quem
  * já estava executando só como critério de desempate, não como prioridade
  * absoluta). */
+static void contar_cpus_desligadas(Estado *e);
+
 static void escalonar(Simulacao *s)
 {
-    /* Os seis passos estão numerados abaixo. A ideia central: a cada tick
-     * TODAS as prontas e as que estão executando disputam as CPUs de novo.
-     * Por isso uma tarefa mais prioritária que chega toma a CPU de quem
-     * está rodando (preempção). Quem continua rodando só ganha vantagem no
-     * desempate (critério 1 do req. 4.3), não passe livre. */
+    /* Os seis passos estão numerados abaixo. A ideia central: TODAS as
+     * prontas e as que estão executando disputam as CPUs de novo. Por isso
+     * uma tarefa mais prioritária que chega toma a CPU de quem está rodando
+     * (preempção). Quem continua rodando só ganha vantagem no desempate
+     * (critério 1 do req. 4.3), não passe livre. */
     Estado *e = &s->atual;
 
     /* 1) Montar a lista de candidatos */
@@ -259,20 +278,23 @@ static void escalonar(Simulacao *s)
                     e->cpus[c].tarefa = id;    
                     e->tarefas[id].estado = EST_EXECUTANDO; 
                     e->tarefas[id].quantum_restante = e->quantum;
-                    break;                   
+                    break;
                 }
             }
         }
     }
 
     /* 6) Contabilizar a ociosidade das CPUs que sobraram sem ninguém */
+    contar_cpus_desligadas(e);
+}
+
+/* OCIOSIDADE (req. 1.2) — mais um tick desligada para cada CPU vazia.
+ * Passo 6 de escalonar(), e chamada direto em tick sem evento. */
+static void contar_cpus_desligadas(Estado *e)
+{
     for (int c = 0; c < e->ncpus; c++)
-    {
         if (e->cpus[c].tarefa == -1)
-        {
             e->cpus[c].ticks_desligada++;
-        }
-    }
 }
 
 /* EXECUÇÃO — consome uma unidade de tempo de cada tarefa que está na CPU,
@@ -283,8 +305,9 @@ static void executar(Simulacao *s)
 {
     /* Para cada tarefa na CPU: gasta 1 unidade de trabalho e 1 de quantum,
      * e então decide se ela (a) terminou esta execução, (b) esgotou o
-     * quantum e devolve a CPU, ou (c) segue executando. Quem decide QUEM
-     * entra nas CPUs livres é escalonar(), logo depois, no mesmo tick. */
+     * quantum e devolve a CPU, ou (c) segue executando. (a) e (b) são
+     * EVENTOS (precisa_escalonar). Roda depois do tick++ sem problema: não
+     * lê o tick, só contabiliza o intervalo [tick-1, tick) que acabou. */
     Estado *executando = &s->atual;
     for(int i = 0; i < executando->ntarefas; i++)
     {
@@ -320,6 +343,7 @@ static void executar(Simulacao *s)
                  {
                      tarefa->estado = EST_INATIVA;
                  }
+                 s->precisa_escalonar = 1; /* EVENTO: término, CPU livre */
              }
              /* (b) Quantum esgotado com trabalho por fazer: devolve a CPU e
               * volta para a fila. quantum 0 no arquivo = sem limite, por
@@ -328,6 +352,7 @@ static void executar(Simulacao *s)
              {
                  soltar_cpu(executando, tarefa);
                  tarefa->estado = EST_PRONTA;
+                 s->precisa_escalonar = 1; /* EVENTO: fim de quantum */
              }
          }
     }
@@ -403,7 +428,8 @@ int sim_iniciar(Simulacao *s, Estado *inicial, Diagnostico *d)
 
     s->limite_ticks = calcular_limite(&s->atual);
     ativar(s);    /* ativações que já valem no tick 0 */
-    escalonar(s); /* primeira atribuição de CPUs */
+    escalonar(s); /* primeira atribuição de CPUs: no tick 0 sempre escalona */
+    s->precisa_escalonar = 0;  /* os eventos do tick 0 já foram atendidos */
     s->terminada = todas_concluidas(&s->atual);
     if (!snapshot(s)) /* historico[0] = tick 0 (requisito 1.5.2) */
     {
@@ -412,6 +438,36 @@ int sim_iniciar(Simulacao *s, Estado *inicial, Diagnostico *d)
         return 0;
     }
     return 1;
+}
+
+/* TRATADOR DO TICK — a "interrupção" do relógio: VERIFICA sempre (executar,
+ * prazos e chegadas levantam s->precisa_escalonar) e AGE só se preciso. */
+static void tratar_tick(Simulacao *s)
+{
+    executar(s);          /* contabiliza o intervalo que acabou          */
+    verificar_prazos(s);  /* marca quem estourou o prazo                 */
+    ativar(s);            /* chegadas deste tick                         */
+
+    /* A estrela de sorteio no Gantt só vale no tick em que a tarefa GANHOU
+     * a CPU: apaga sempre; escalonador_ordenar a acende de novo se rodar. */
+    for (int i = 0; i < s->atual.ntarefas; i++)
+        s->atual.tarefas[i].sorteada = 0;
+
+    if (s->precisa_escalonar || escalonador_muda_com_a_execucao(s->esc))
+    {
+        escalonar(s);
+        s->precisa_escalonar = 0;  /* evento atendido */
+    }
+    else
+        contar_cpus_desligadas(&s->atual);
+}
+
+/* RELÓGIO GLOBAL DO SISTEMA (req. 1.1): o ÚNICO tick++ do código. Como o
+ * timer de um computador, só faz o tempo andar e "interrompe" o núcleo. */
+static void relogio_avancar(Simulacao *s)
+{
+    s->atual.tick++;   /* o tempo anda...                                */
+    tratar_tick(s);    /* ...e gera a "interrupção" do tick              */
 }
 
 /* AVANÇAR (req. 1.5, modo passo a passo) — executa UM tick do relógio.
@@ -438,13 +494,9 @@ int sim_avancar(Simulacao *s)
         return 0;
     }
 
-    /* Um tick, sempre nesta ordem (explicada no topo do arquivo). A ordem
-     * fixa é o que faz retroceder e avançar de novo dar o mesmo resultado. */
-    executar(s);         /* quem está nas CPUs trabalha 1 unidade       */
-    s->atual.tick++;     /* o relógio global anda (req. 1.1)            */
-    verificar_prazos(s); /* marca quem estourou o prazo                 */
-    ativar(s);           /* tarefas periódicas que vencem agora chegam  */
-    escalonar(s);        /* decide quem ocupa cada CPU a partir daqui   */
+    /* Um tick: o relógio anda e o tratador do tick faz o resto (ordem
+     * explicada no topo do arquivo). */
+    relogio_avancar(s);
 
     /* Fim natural (req. 4.4): todas as tarefas completaram as 10 execuções.
      * São duas mensagens diferentes de propósito: "concluída" aqui e
@@ -495,6 +547,11 @@ int sim_retroceder(Simulacao *s)
      * estado atual passaria a dividir os vetores com a foto guardada. O
      * próximo avanço estragaria o histórico. */
     s->atual = estado_clonar(&s->historico[s->n_hist - 1]);
+
+    /* A marca de evento não faz parte da foto (é controle do núcleo, não
+     * estado do sistema). Por segurança o primeiro tick depois de voltar
+     * no tempo reescalona. */
+    s->precisa_escalonar = 1;
 
     /* O algoritmo vem da foto: retroceder para antes de uma troca de
      * algoritmo desfaz a troca (o ponteiro é só um atalho para o nome). */
@@ -780,6 +837,8 @@ int sim_editar_tarefa(Simulacao *s, const char *id_tarefa, const char *campo,
     if (!aplicar_edicao(s, id_tarefa, campo, valor, motivo, motivo_tam))
         return 0;   /* recusada: nada mudou, nada a atualizar */
 
+    s->precisa_escalonar = 1; /* EVENTO: vale a partir do próximo tick */
+
     /* A edição pode ter concluído a simulação (ex.: a última tarefa
      * pendente marcada como CONCLUIDA). */
     s->terminada = todas_concluidas(&s->atual);
@@ -926,8 +985,7 @@ void sim_liberar(Simulacao *s)
  * trás. É o que o req. 4.2 pede: algoritmo plugável.
  *
  * Vale a partir do PRÓXIMO tick: as CPUs do tick atual já foram
- * distribuídas pelo algoritmo antigo. Redistribuir agora exigiria chamar
- * escalonar() de novo, que contaria a ociosidade das CPUs duas vezes.
+ * distribuídas pelo algoritmo antigo. A troca é um EVENTO.
  *
  * Quem manda é o NOME guardado no estado (que vai para cada foto); o
  * ponteiro s->esc é só um atalho para ele. Por isso retroceder para antes
@@ -1010,5 +1068,6 @@ int sim_trocar_algoritmo(Simulacao *s, const char *nome,
                  "algoritmo trocado para %s antes do inicio: vale desde o tick 0",
                  esc->nome);
     }
+    s->precisa_escalonar = 1; /* EVENTO: o algoritmo novo vale no próximo tick */
     return 1;
 }

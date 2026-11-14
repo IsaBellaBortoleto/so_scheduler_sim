@@ -13,7 +13,7 @@
  * COMO ISSO E ATENDIDO
  * O kernel nunca menciona "RM" nem "EDF". Ele faz duas coisas so:
  *   1. ao carregar:   s->esc = escalonador_buscar(nome_lido_do_arquivo);
- *   2. a cada tick:   escalonador_ordenar(s->esc, ...);
+ *   2. a cada evento: escalonador_ordenar(s->esc, ...);  (ver kernel.c)
  * Qual algoritmo esta por tras do ponteiro s->esc, o kernel nao sabe e nao
  * precisa saber.
  *
@@ -73,8 +73,11 @@ const Escalonador *escalonador_em(int i);
 
 /* Ordena 'indices' (posicoes em e->tarefas) da tarefa MAIS prioritaria para
  * a menos, usando os criterios do algoritmo e, em caso de empate, os do
- * requisito 4.3. E a unica funcao que o kernel chama a cada tick: as
+ * requisito 4.3. E a unica funcao que o kernel chama ao escalonar: as
  * 'ncpus' primeiras posicoes do resultado ganham processador. */
 void escalonador_ordenar(const Escalonador *esc, Estado *e, int *indices, int n);
+
+/* 1 se usa exec_restante (ex. SRTF): o kernel reescalona em todo tick. */
+int escalonador_muda_com_a_execucao(const Escalonador *esc);
 
 #endif

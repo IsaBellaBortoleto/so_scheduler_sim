@@ -43,8 +43,8 @@ const char *estado_nome(EstadoTarefa e);
 int id_comparar(const char *a, const char *b);
 
 /* TCB — Task Control Block: UMA struct com tudo sobre a tarefa, antes,
- * durante e depois da simulação (req. 1.3). Não há campo de prioridade: ela
- * é calculada pelo algoritmo a cada tick (escalonador.c). */
+ * durante e depois da simulação (req. 1.3). Não há campo de prioridade: o
+ * algoritmo só compara campos daqui (escalonador.c). */
 typedef struct {
     /* ---- vem do arquivo de configuração (não muda na simulação, exceto
      *      duracao e prazo, que a edição manual pode alterar) ---- */

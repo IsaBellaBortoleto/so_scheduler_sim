@@ -22,6 +22,7 @@ typedef struct {
     int     terminada;
     int     limite_ticks; /* calculado em sim_iniciar, a partir do arquivo */
     char    ultimo_evento[256];
+    int     precisa_escalonar; /* 1 = houve evento: reescalonar (kernel.c) */
 } Simulacao;
 
 

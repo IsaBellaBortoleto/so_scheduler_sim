@@ -11,7 +11,7 @@
  *    formulário da página, ambos lidos por escalonador_carregar_texto.
  *    RM e EDF são registrados pelo mesmo caminho.               [req. 4.2]
  *  - O kernel não conhece nenhum algoritmo. Ele só chama escalonador_buscar
- *    (ao carregar o arquivo) e escalonador_ordenar (a cada tick).
+ *    (ao carregar o arquivo) e escalonador_ordenar (a cada evento).
  *  - Empate: 5 critérios em cascata, em comparar_sem_sorteio.    [req. 4.3]
  * ==========================================================================*/
 #include "escalonador.h"
@@ -91,6 +91,16 @@ void escalonador_registrar_padroes(void)
     char m[128];
     escalonador_carregar_texto("RM;Rate Monotonic;sim\nperiodo;menor", m, sizeof m);
     escalonador_carregar_texto("EDF;Earliest Deadline First;sim\ndeadline_abs;menor", m, sizeof m);
+}
+
+/* 1 se o algoritmo usa exec_restante (ex. SRTF), que muda a cada tick na
+ * CPU. Fica aqui porque o kernel não conhece nomes de campos (req. 4.2). */
+int escalonador_muda_com_a_execucao(const Escalonador *esc)
+{
+    for (int i = 0; i < esc->n_criterios; i++)
+        if (strcmp(campos[esc->criterios[i].campo].nome, "exec_restante") == 0)
+            return 1;
+    return 0;
 }
 
 /* ----------------------------- desempate (4.3) --------------------------- */
@@ -215,7 +225,7 @@ static int comparar(const Escalonador *esc, const TCB *a, const TCB *b, int tick
 
 /* Ordena 'indices' da tarefa mais prioritária para a menos.
  * 'indices' guarda POSIÇÕES em e->tarefas (não as tarefas, nem os ids).
- * É a única função que o kernel chama a cada tick: as ncpus primeiras
+ * É a única função que o kernel chama ao escalonar: as ncpus primeiras
  * posições do resultado ganham processador.
  *
  * Ordenação por inserção, como arrumar cartas na mão: pega uma tarefa e a
