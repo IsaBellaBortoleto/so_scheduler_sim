@@ -7,12 +7,12 @@ Esse trabalho foi desenvolvido em três partes: A e B. Em seguida, segue uma exp
 
 ## Tecnologias
 ### Front-end
-- HTML/CSS, Javascript
+HTML/CSS, Javascript
 ### Back-end
-- C
+C
 ### API
-- Json
-- 
+Json
+
 ## Projeto A
 
   O Projeto A consiste em um simulador de sistema operacional multitarefa preemptivo de tempo compartilhado, também conhecido como escalonador de tempo real. Contém vários processadores, os algoritmos de escalonamento Rate Monotonic e Earliest Deadline First e a visualização da execução em um gráfico de Gantt.
