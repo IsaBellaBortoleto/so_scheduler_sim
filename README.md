@@ -6,12 +6,9 @@ Esse trabalho foi desenvolvido em três partes: A e B. Em seguida, segue uma exp
 - Ana Carolina Czelen Lipe
 
 ## Tecnologias
-### Front-end
-HTML/CSS, Javascript
-### Back-end
-C
-### API
-Json
+**Front-end** : HTML/CSS, Javascript
+**Back-end** : C
+**API** : Json
 
 ## Projeto A
 
