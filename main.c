@@ -321,11 +321,50 @@ static void teste_config(void)
     /* Periodo que nao e numero e ERRO (3.3), e a mensagem traz o numero da
      * linha contando as linhas em branco, para bater com o editor do
      * usuario. (Periodo negativo deixou de ser erro: e esporadica, B 1.3.)
-     * TODO [6.2/6.3]: casos da esporadica -- lista "0,5,10" com |P| = 5
-     * carrega; "0,5,8" e ignorada com aviso; "0,x" e "5,0" sao erro. */
+     * TODO [6.3]: "0,5,8" com |P| = 5 e ignorada com aviso. */
     memset(&d, 0, sizeof d);
     assert(config_carregar_texto("RM;2;1\n\n1;;0;1;x", &e, &d) == 0);
     assert(d.n_erros == 1 && strstr(d.erros[0], "linha 3") != NULL);
+
+    /* [6.2] Lista da esporadica: instantes RELATIVOS ao ingresso viram tick
+     * ABSOLUTO (ingresso 10: 0,5,12 -> 10,15,22), com espacos aceitos. Os 3
+     * instantes tem que estar la: pega um laco que para no primeiro. */
+    memset(&d, 0, sizeof d);
+    assert(config_carregar_texto("RM;0;1\n1;;0;1;4\ne1;;10;1;-5;;0, 5 ,12", &e, &d) == 1);
+    assert(e.tarefas[1].tipo == TIPO_ESPORADICA && e.tarefas[1].n_instantes == 3);
+    assert(e.tarefas[1].instantes[0] == 10 && e.tarefas[1].instantes[1] == 15 &&
+           e.tarefas[1].instantes[2] == 22);
+    assert(strcmp(e.tarefas[1].eventos, "0, 5 ,12") == 0); /* o texto fica inteiro */
+    estado_liberar(&e);
+
+    /* [6.2] Formato ruim e ERRO, e a mensagem cita o pedaco ruim (e nao o
+     * id no lugar dele): vazio, nao numero, negativo, ",,", virgula no
+     * fim, fora de ordem e mais de MAX_EVENTOS. Iguais passam (sao do 6.3). */
+    {
+        static const char *ruins[] = {"", "0,x", "-3", "0,,5", "0,5,", "5,0"};
+        char linha[512];
+        int k, pos;
+
+        for (k = 0; k < (int)(sizeof ruins / sizeof *ruins); k++)
+        {
+            snprintf(linha, sizeof linha, "RM;0;1\n1;;0;1;4\ne1;;10;1;-5;;%s", ruins[k]);
+            memset(&d, 0, sizeof d);
+            assert(config_carregar_texto(linha, &e, &d) == 0 && d.n_erros == 1);
+        }
+        memset(&d, 0, sizeof d);
+        assert(config_carregar_texto("RM;0;1\n1;;0;1;4\ne1;;0;1;-5;;0,x", &e, &d) == 0);
+        assert(strstr(d.erros[0], "evento \"x\"") != NULL);
+
+        pos = snprintf(linha, sizeof linha, "RM;0;1\n1;;0;1;4\ne1;;0;1;-1;;0");
+        for (k = 1; k <= MAX_EVENTOS; k++)  /* MAX_EVENTOS + 1 instantes */
+            pos += snprintf(linha + pos, sizeof linha - (size_t)pos, ",%d", k);
+        memset(&d, 0, sizeof d);
+        assert(config_carregar_texto(linha, &e, &d) == 0 && strstr(d.erros[0], "mais de"));
+
+        memset(&d, 0, sizeof d);
+        assert(config_carregar_texto("RM;0;1\n1;;0;1;4\ne1;;0;1;-5;;0,5,5", &e, &d) == 1);
+        estado_liberar(&e);
+    }
 
     /* Tres decisoes de projeto, na mesma leitura:
      *  - quantum 0 e aceito (significa "sem limite de quantum");

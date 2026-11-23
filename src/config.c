@@ -302,29 +302,71 @@ static int campo_int_min(Diagnostico *d, int linha, const char *nome,
 
 /* ------------------- Projeto B: aperiódicas e esporádicas ----------------- */
 
-/* [6.2] Lê a lista_eventos de uma ESPORÁDICA ("0,5,12") para t->instantes,
- * já em tick ABSOLUTO: instante do arquivo + t->ingresso (req. B 1.3: com
- * ingresso 10, o instante 5 fica pronto no tick 15). Por isso t->ingresso
- * tem que estar lido antes da chamada.
- * Devolve 1 se a lista é válida; 0 se não é, com o motivo já em d (ERRO).
+/* [6.2] Lista de eventos da esporádica (req. B 1.3): "0,5,12" com ingresso
+ * 10 vira t->instantes = {10, 15, 22}. O arquivo traz instantes RELATIVOS
+ * ao ingresso; o TCB guarda o tick ABSOLUTO, que é o que o núcleo compara.
+ * Devolve 1 se a lista é válida; 0 se não, com o ERRO em d.
  *
- * TODO [6.2]:
- *   - separar t->eventos por ',' (os campos da LINHA são separados por ';';
- *     dentro da lista o separador é a vírgula);
- *   - cada pedaço: trim + ler_inteiro; texto que não é número ou número < 0
- *     é erro com a linha e o pedaço ("linha 4: evento \"x\" invalido...");
- *   - mais de MAX_EVENTOS pedaços: erro (o TCB não tem onde guardar);
- *   - guardar t->ingresso + valor em t->instantes[t->n_instantes++];
- *   - DECIDIR e justificar: lista vazia (a tarefa nunca chegaria) e lista
- *     fora de ordem ("5,0"). Sugestão: as duas como erro; ordenar em
- *     silêncio esconderia um engano do usuário.
- * Dica: corte uma CÓPIA local (char buf[MAX_EVENTOS_TXT]), não t->eventos:
- * esse texto vai inteiro para a página. O strtok junta ",," em um só
- * separador; para acusar ",," como erro, use strchr como em split_campos. */
+ * Formato ruim é ERRO (aqui); intervalo mínimo violado é AVISO e só ignora a
+ * tarefa (6.3). Por isso instantes iguais ("5,5") passam daqui.
+ * Também são ERRO: lista vazia (a tarefa nunca chegaria), fora de ordem
+ * (ordenar sozinho esconderia um engano do usuário), ",," ou vírgula no
+ * fim, mais de MAX_EVENTOS (vetor fixo dentro do TCB, por causa do memcpy
+ * do histórico) e ingresso + instante acima de INT_MAX. */
 static int ler_lista_eventos(Diagnostico *d, int linha, TCB *t)
 {
-    (void)d; (void)linha;
+    char buf[MAX_EVENTOS_TXT];
+    char *pedaco, *sep;
+
     t->n_instantes = 0;
+    /* Cópia: o corte troca ',' por '\0', e t->eventos vai inteiro para a página. */
+    snprintf(buf, sizeof buf, "%s", t->eventos);
+
+    if (*trim(buf) == '\0')
+    {
+        diag_erro(d, "linha %d: tarefa \"%s\" e esporadica (periodo < 0) mas nao tem lista_eventos",
+                  linha, t->id);
+        return 0;
+    }
+
+    /* Corte com strchr, como em split_campos. O strtok juntaria ",," e o
+     * pedaço vazio passaria sem erro. */
+    for (pedaco = buf; pedaco != NULL; pedaco = sep)
+    {
+        int valor;
+        char *txt;
+
+        sep = strchr(pedaco, ',');
+        if (sep != NULL)
+            *sep++ = '\0';
+        txt = trim(pedaco);
+
+        if (!ler_inteiro(txt, &valor) || valor < 0)
+        {
+            diag_erro(d, "linha %d: tarefa \"%s\": evento \"%s\" invalido (esperado um inteiro >= 0)",
+                      linha, t->id, txt);
+            return 0;
+        }
+        /* Testa antes de somar: estouro de int é comportamento indefinido. */
+        if (valor > INT_MAX - t->ingresso)
+        {
+            diag_erro(d, "linha %d: tarefa \"%s\": evento %d grande demais", linha, t->id, valor);
+            return 0;
+        }
+        if (t->n_instantes == MAX_EVENTOS)
+        {
+            diag_erro(d, "linha %d: tarefa \"%s\" tem mais de %d eventos", linha, t->id, MAX_EVENTOS);
+            return 0;
+        }
+        /* Só recusa se DIMINUI; a mensagem mostra o número do arquivo. */
+        if (t->n_instantes > 0 && t->ingresso + valor < t->instantes[t->n_instantes - 1])
+        {
+            diag_erro(d, "linha %d: tarefa \"%s\": eventos fora de ordem (%d depois de %d)",
+                      linha, t->id, valor, t->instantes[t->n_instantes - 1] - t->ingresso);
+            return 0;
+        }
+        t->instantes[t->n_instantes++] = t->ingresso + valor;
+    }
     return 1;
 }
 
@@ -342,9 +384,11 @@ static int ler_lista_eventos(Diagnostico *d, int linha, TCB *t)
  * usuário escreveu):
  *   linha 4: tarefa "e1" esporadica ignorada: ocorrencias em 5 e 8 estao a
  *   3 ticks; o intervalo minimo e 5 */
-static int intervalo_minimo_ok(Diagnostico *d, int linha, const TCB *t)
+static int intervalo_minimo_ok(Diagnostico * d, int linha, const TCB *t)
 {
-    (void)d; (void)linha; (void)t;
+    (void)d;
+    (void)linha;
+    (void)t;
     return 1;
 }
 
@@ -468,9 +512,9 @@ int config_carregar_texto(const char *conteudo, Estado *e, Diagnostico *d)
                       num, campos[4]);
             ok = 0;
         }
-        t.tipo = t.periodo > 0 ? TIPO_PERIODICA
-               : t.periodo == 0 ? TIPO_APERIODICA
-               : TIPO_ESPORADICA;
+        t.tipo = t.periodo > 0    ? TIPO_PERIODICA
+                 : t.periodo == 0 ? TIPO_APERIODICA
+                                  : TIPO_ESPORADICA;
 
         /* [6.1] Período em branco vira 0 pelo padrão (req. 3.2), e 0 agora é
          * uma APERIÓDICA de verdade. Como o usuário pode só ter esquecido o
