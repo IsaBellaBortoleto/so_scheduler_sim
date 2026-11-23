@@ -75,6 +75,16 @@ void estado_liberar(Estado *e)
 
 /* Nome legivel do estado: o texto da coluna "estado" da pagina (requisito
  * 1.5.1) e o que se digita na edicao manual (requisito 3.4). */
+const char *tipo_nome(TipoTarefa t)
+{
+    switch (t) {
+        case TIPO_PERIODICA:  return "PERIODICA";
+        case TIPO_APERIODICA: return "APERIODICA";
+        case TIPO_ESPORADICA: return "ESPORADICA";
+    }
+    return "?";
+}
+
 const char *estado_nome(EstadoTarefa e)
 {
     switch (e) {

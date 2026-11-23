@@ -16,6 +16,28 @@
 /* Tamanho do texto da lista de eventos (usada só no Projeto B). */
 #define MAX_EVENTOS_TXT 256
 
+/* Máximo de ocorrências de uma esporádica (req. B 1.3). Cada int a mais no
+ * TCB vai para TODAS as fotos do histórico (uma por tick, para cada tarefa):
+ * com 200 tarefas e ~2700 ticks, 32 instantes já somam ~70 MB. Passou de 32,
+ * o parser recusa a tarefa com o motivo. */
+#define MAX_EVENTOS 32
+
+/* O TIPO da tarefa sai do sinal do período (req. B 1.2 e 1.3):
+ *   periodo > 0  PERIODICA   chega a cada Pi, faz MAX_ATIVACOES execuções
+ *   periodo = 0  APERIODICA  chega UMA vez, no ingresso
+ *   periodo < 0  ESPORADICA  chega em cada instante da lista_eventos, com
+ *                            pelo menos |periodo| ticks entre duas chegadas
+ * Aperiódicas e esporádicas NÃO entram na fila de prontos: só um servidor
+ * as executa (req. B 1.1). TODO [7]: acrescentar TIPO_SERVIDOR. */
+typedef enum {
+    TIPO_PERIODICA = 0, /* 0 de propósito: o memset do parser já deixa assim */
+    TIPO_APERIODICA,
+    TIPO_ESPORADICA
+} TipoTarefa;
+
+/* O nome do tipo como texto ("PERIODICA"...), para o JSON e a página. */
+const char *tipo_nome(TipoTarefa t);
+
 /* Tamanho do id de uma tarefa: 15 letras + o '\0' do fim. O id é TEXTO
  * (ex. "t06"), e não número: é o que o professor pediu na defesa do A, e o
  * Projeto B identifica os servidores pelo id (BSxx, PSxx, DSxx, SSxx). */
@@ -58,6 +80,13 @@ typedef struct {
     int  periodo;                    /* Pi: chega uma execução a cada Pi    */
     int  prazo;                      /* Di: prazo contado da chegada        */
     char eventos[MAX_EVENTOS_TXT];   /* lista de eventos (Projeto B)        */
+    TipoTarefa tipo;                 /* pelo sinal do período (ver acima)   */
+    /* Chegadas da ESPORÁDICA em tick ABSOLUTO (ingresso + instante do
+     * arquivo), em ordem crescente. Vetor DENTRO da struct, e não ponteiro:
+     * o histórico copia o TCB com memcpy (tcb.c), e um ponteiro seria
+     * compartilhado por todas as fotos. */
+    int  instantes[MAX_EVENTOS];
+    int  n_instantes;
 
     /* ---- muda a cada tick (núcleo, kernel.c) ---- */
     EstadoTarefa estado;
@@ -75,6 +104,8 @@ typedef struct {
     int  sorteada;          /* 1 se ganhou a CPU num sorteio (★ no Gantt)    */
     int  pendentes;   /* execuções que chegaram enquanto a anterior ainda não
                        * tinha terminado; esperam a vez, em ordem de chegada */
+    int  prox_evento; /* ESPORÁDICA: índice em instantes[] da PRÓXIMA chegada;
+                       * == n_instantes quando todas já chegaram */
 } TCB;
 
 

@@ -166,6 +166,11 @@ static void sai_tarefa(Saida *s, const TCB *t)
     sai(s, ",\"cor\":\"#%02X%02X%02X\",", t->r, t->g, t->b);
     sai(s, "\"ingresso\":%d,\"duracao\":%d,\"periodo\":%d,\"prazo\":%d,",
         t->ingresso, t->duracao, t->periodo, t->prazo);
+    /* TODO [6.6]: a página ainda não mostra o tipo nem a fila de aperiódicas
+     * (sim_fila_aperiodicas, kernel.h). Sem isso não dá para VER o 6.4
+     * funcionando antes de existir servidor. */
+    sai(s, "\"tipo\":\"%s\",\"prox_evento\":%d,\"n_instantes\":%d,",
+        tipo_nome(t->tipo), t->prox_evento, t->n_instantes);
     /* estado_nome só devolve palavras fixas (INATIVA, PRONTA...): não
      * precisa de sai_texto. */
     sai(s, "\"estado\":\"%s\",", estado_nome(t->estado));

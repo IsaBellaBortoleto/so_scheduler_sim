@@ -1,0 +1,118 @@
+@startuml projeto_b_fluxograma
+title Fluxograma do Simulador — Projeto B (o que já existe e o que falta fazer)
+
+' ----------------------------------------------------------------------------
+' Base: kanban docs/cronograma_projeto_b.xlsx (grupos 5 a 11) e o código de
+' 14/11/2026 (relógio + escalonamento só em evento, kernel.c).
+' Cores: BRANCO = já existe (Projeto A + ajustes da defesa)
+'        AMARELO = novo no Projeto B (o número entre [ ] é a tarefa do kanban)
+'        LARANJA = decisão em aberto (kanban 5.2), levar ao professor
+' ----------------------------------------------------------------------------
+
+skinparam ActivityBackgroundColor white
+skinparam NoteBackgroundColor #FFF3E0
+skinparam NoteBorderColor #E65100
+
+legend top left
+  |= Cor |= Significado |
+  |<#white>| já existe (Projeto A + ajustes) |
+  |<#Khaki>| novo no Projeto B [nº do kanban] |
+  |<#FFF3E0>| decisão em aberto (kanban 5.2) |
+endlegend
+
+start
+
+:Usuário carrega o arquivo\n(seletor do navegador ou modo manual);
+:Lê a 1ª linha: algoritmo;quantum;qtde_cpus;
+
+partition "Leitura de cada tarefa (config.c)" {
+  repeat :Próxima linha: id;cor;ingresso;duracao;periodo;prazo;lista_eventos;
+    if (id = BSxx / PSxx / DSxx / SSxx?\n(sem diferenciar maiúsculas)) then (sim)
+      #Khaki:SERVIDOR do tipo indicado [7.1]\nduração = capacidade Cs\nperíodo = período Ps;
+    elseif (periodo > 0?) then (sim)
+      :tarefa PERIÓDICA\n(como no Projeto A);
+    elseif (periodo = 0?) then (sim)
+      #Khaki:tarefa APERIÓDICA [6.1]\n(uma única ativação, no ingresso)\nhoje é IGNORADA com aviso: tirar [5.4];
+    else (periodo < 0)
+      #Khaki:tarefa ESPORÁDICA [6.2]\n|periodo| = intervalo mínimo\nlista_eventos = instantes de chegada\n(relativos ao ingresso);
+      if (Duas chegadas mais próximas\nque o intervalo mínimo?) then (sim)
+        #Khaki:AVISO com linha e motivo [6.3]\ntarefa IGNORADA; o resto do arquivo carrega\n(decisão da dupla, sugerida pelo professor em 19/11);
+      endif
+    endif
+    #Khaki:Guarda tudo no TCB [5.3]\n(tipo, tipo de servidor, capacidade restante,\ntarefa atendida, instantes da esporádica);
+  repeat while (Há mais linhas?) is (sim)
+  -> não;
+}
+
+if (Algum erro no arquivo?) then (sim)
+  :Mostra todos os erros\n(linha + motivo) e para;
+  stop
+endif
+
+partition "Teste de escalonabilidade [8]" #Khaki {
+  :Utilização U = soma de C/P\n(PS e SS entram como periódica Cs/Ps;\nDS pela equação [19] do cap. 2;\nBS não consome; esporádica = periódica\ncom o período mínimo) [8.3][8.4];
+  if (Algoritmo?) then (RM)
+    :Passa se U <= n(2^(1/n) - 1) [8.1];
+  else (EDF)
+    :Passa se U <= 1\n(prazo < período: densidade C/D) [8.2];
+  endif
+  note right
+    Em aberto [5.2/8.5]: limite com N CPUs
+    (o capítulo trata 1 processador) e se
+    usa análise de tempo de resposta
+    quando o teste por U falha.
+  end note
+  :Tarefa reprovada é RECUSADA com\nU, limite e motivo na tela [8.6][8.7];
+}
+
+:Tick 0: chegadas, escalonamento,\nprimeira foto no histórico;
+
+repeat
+  :Usuário escolhe uma ação;
+  switch (Ação?)
+  case (avançar)
+    :relogio_avancar(): tick + 1\n(único lugar em que o tempo anda);
+    partition "tratar_tick() — a interrupção do relógio" {
+      :1. executar(): quem está na CPU consome 1\n(término / fim de quantum = EVENTO);
+      #Khaki:1b. Servidor na CPU: gasta 1 da capacidade\ne 1 da aperiódica que atende [7.7]\naperiódica terminou ou capacidade zerou = EVENTO;
+      :2. verificar_prazos(): marca prazo perdido;
+      #Khaki:2b. Prazo também para aperiódica\ne esporádica [6.5];
+      :3. ativar(): chegadas das periódicas = EVENTO;
+      #Khaki:3b. Chegada de aperiódica / esporádica:\nvai para a FILA GLOBAL DE APERIÓDICAS,\nnão para a fila de prontos [6.4] = EVENTO;
+      #Khaki:3c. Início de período de servidor:\nrecarga da capacidade conforme o tipo\n(ver diagrama projeto_b_servidores) [7.3-7.6];
+      #Khaki:3d. Servidor com capacidade e sem tarefa\nRETIRA a 1ª da fila global; ela fica\ninacessível aos outros servidores [7.2][7.8];
+      if (precisa_escalonar?\n(houve evento)) then (sim)
+        :4. escalonar(): fila global, N CPUs,\ndesempate do req. 4.3;
+        #Khaki:Servidor disputa CPU como periódica\n(RM/EDF/...); BS só sem periódica pronta;\naperiódica NUNCA entra direto [7.3][7.7];
+      else (não)
+        :quem está na CPU continua;
+      endif
+      :5. Conta CPUs desligadas;
+    }
+    :Foto do tick no histórico;
+  case (executar tudo)
+    :Repete avançar até o fim;
+    note right
+      Em aberto [5.2]: quando terminam
+      servidores e aperiódicas (a regra
+      das 10 execuções é das periódicas).
+    end note
+  case (retroceder)
+    :relogio_retroceder(): restaura a foto anterior;
+    #Khaki:A foto inclui capacidade dos servidores\ne a fila de aperiódicas [6.6];
+  case (editar / criar tarefa)
+    #Khaki:Roda o teste de escalonabilidade\nANTES de aceitar [8.6];
+    if (Edição válida e aprovada?) then (sim)
+      :Aplica e marca evento;
+    else (não)
+      :Recusa com o motivo;
+    endif
+  case (exportar SVG)
+    :Leva uma cópia até o fim e desenha;
+  endswitch
+  #Khaki:Gantt [9]: servidor com preenchimento diferente\nde sólido; aperiódica atendida marcada no mesmo\nintervalo e CPU; marcadores novos (chegada esporádica,\nrecarga, tarefa recusada) + legenda;
+repeat while (A simulação continua?) is (sim)
+-> não;
+stop
+
+@enduml

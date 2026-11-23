@@ -19,12 +19,15 @@
  *   3.3.2 maiúsculas/minúsculas .......... str_igual_ci, str_maiuscula
  *   3.3.3 ';' final opcional ............. split_campos
  *   3.3.6 espaços e linhas em branco ..... trim
- *   4.4   tarefa aperiódica (período 0) .. ignorada com AVISO
+ *   B 1.2 período 0 ..................... tarefa APERIÓDICA
+ *   B 1.3 período < 0 ................... tarefa ESPORÁDICA: lista de eventos
+ *                                         e intervalo mínimo (ler_lista_eventos,
+ *                                         intervalo_minimo_ok)
  *
- *   período vazio ...... padrão 0 = aperiódica; ignorada, com aviso próprio
- *   prazo vazio ou 0 ... vale o período (o 0 escrito gera aviso)
+ *   período vazio ...... padrão 0 = aperiódica, com aviso
+ *   prazo vazio ou 0 ... periódica: vale o período (o 0 escrito gera aviso)
  *   quantum 0 .......... sem limite de quantum
- *   lista de eventos ... guardada inteira; só é interpretada no Projeto B
+ *   lista de eventos ... guardada inteira; na esporádica vira instantes[]
  * ==========================================================================*/
 #include "config.h"
 
@@ -67,7 +70,7 @@ void diag_erro(Diagnostico *d, const char *fmt, ...)
 
 /* Igual a diag_erro, mas na lista de AVISOS. Aviso NÃO reprova o arquivo:
  * é algo que o usuário precisa saber e que a simulação contorna sozinha
- * (ex.: tarefa aperiódica ignorada, req. 4.4). */
+ * (ex.: esporádica que viola o intervalo mínimo, ignorada; req. B 1.3). */
 void diag_aviso(Diagnostico *d, const char *fmt, ...)
 {
     va_list args;
@@ -297,6 +300,54 @@ static int campo_int_min(Diagnostico *d, int linha, const char *nome,
     return valor;
 }
 
+/* ------------------- Projeto B: aperiódicas e esporádicas ----------------- */
+
+/* [6.2] Lê a lista_eventos de uma ESPORÁDICA ("0,5,12") para t->instantes,
+ * já em tick ABSOLUTO: instante do arquivo + t->ingresso (req. B 1.3: com
+ * ingresso 10, o instante 5 fica pronto no tick 15). Por isso t->ingresso
+ * tem que estar lido antes da chamada.
+ * Devolve 1 se a lista é válida; 0 se não é, com o motivo já em d (ERRO).
+ *
+ * TODO [6.2]:
+ *   - separar t->eventos por ',' (os campos da LINHA são separados por ';';
+ *     dentro da lista o separador é a vírgula);
+ *   - cada pedaço: trim + ler_inteiro; texto que não é número ou número < 0
+ *     é erro com a linha e o pedaço ("linha 4: evento \"x\" invalido...");
+ *   - mais de MAX_EVENTOS pedaços: erro (o TCB não tem onde guardar);
+ *   - guardar t->ingresso + valor em t->instantes[t->n_instantes++];
+ *   - DECIDIR e justificar: lista vazia (a tarefa nunca chegaria) e lista
+ *     fora de ordem ("5,0"). Sugestão: as duas como erro; ordenar em
+ *     silêncio esconderia um engano do usuário.
+ * Dica: corte uma CÓPIA local (char buf[MAX_EVENTOS_TXT]), não t->eventos:
+ * esse texto vai inteiro para a página. O strtok junta ",," em um só
+ * separador; para acusar ",," como erro, use strchr como em split_campos. */
+static int ler_lista_eventos(Diagnostico *d, int linha, TCB *t)
+{
+    (void)d; (void)linha;
+    t->n_instantes = 0;
+    return 1;
+}
+
+/* [6.3] Confere o intervalo mínimo entre ocorrências CONSECUTIVAS da
+ * esporádica: instantes[k] - instantes[k-1] >= |periodo| para todo k >= 1.
+ * O ingresso é a CRIAÇÃO da tarefa, não uma ocorrência: não entra na conta.
+ * Devolve 1 se respeita; 0 se não, com AVISO em d.
+ *
+ * DECISÃO (professor, 19/11): quem viola é IGNORADA com aviso e o resto do
+ * arquivo carrega. TODO [6.3]: escrever aqui a justificativa para o
+ * "cliente" (ver docs/anotacoes_professor_projeto_b.md, item 2).
+ *
+ * TODO [6.3]: o laço. Use >= e não >: "mínimo" inclui o próprio valor.
+ * Formato do aviso (o instante do ARQUIVO, sem o ingresso, que é o que o
+ * usuário escreveu):
+ *   linha 4: tarefa "e1" esporadica ignorada: ocorrencias em 5 e 8 estao a
+ *   3 ticks; o intervalo minimo e 5 */
+static int intervalo_minimo_ok(Diagnostico *d, int linha, const TCB *t)
+{
+    (void)d; (void)linha; (void)t;
+    return 1;
+}
+
 /* Lê o texto de configuração linha a linha e preenche *e.
  *   1ª linha válida = cabeçalho (algoritmo;quantum;qtde_cpus)
  *   demais linhas   = uma tarefa (TCB) cada
@@ -405,26 +456,30 @@ int config_carregar_texto(const char *conteudo, Estado *e, Diagnostico *d)
         /* Começa sem CPU. */
         t.cpu = -1;
 
-        t.periodo = campo_int_min(d, num, "periodo", campos[4],
-                                  PADRAO_PERIODO, 0, &ok);
-
-        /* tarefa aperiodica nao e simulada - descartada, nao e erro (4.4).
-         * São dois avisos diferentes: se o usuário ESCREVEU 0, a mensagem
-         * cita o 0; se deixou em branco, diz que o 0 veio do valor padrão,
-         * para não apontar um número que não está no arquivo. */
-        if (ok && t.periodo == 0)
+        /* PERÍODO: qualquer inteiro vale, e o SINAL dá o tipo (req. B 1.2 e
+         * 1.3; ver TipoTarefa em tcb.h). Não usa campo_int_min porque não há
+         * mínimo. INT_MIN fica de fora: |INT_MIN| não cabe num int. */
+        t.periodo = PADRAO_PERIODO;
+        if (*campos[4] != '\0' &&
+            (!ler_inteiro(campos[4], &t.periodo) || t.periodo == INT_MIN))
         {
-            if (*campos[4] == '\0')
-                diag_aviso(d,
-                           "linha %d: tarefa \"%s\": periodo nao informado; "
-                           "padrao 0 (aperiodica), tarefa ignorada",
-                           num, campos[0]);
-            else
-                diag_aviso(d,
-                           "linha %d: tarefa \"%s\" e aperiodica (periodo 0) e foi ignorada",
-                           num, campos[0]);
-            continue;
+            diag_erro(d, "linha %d: periodo invalido \"%s\" (esperado um inteiro: "
+                         ">0 periodica, 0 aperiodica, <0 esporadica)",
+                      num, campos[4]);
+            ok = 0;
         }
+        t.tipo = t.periodo > 0 ? TIPO_PERIODICA
+               : t.periodo == 0 ? TIPO_APERIODICA
+               : TIPO_ESPORADICA;
+
+        /* [6.1] Período em branco vira 0 pelo padrão (req. 3.2), e 0 agora é
+         * uma APERIÓDICA de verdade. Como o usuário pode só ter esquecido o
+         * campo, avisa. O 0 ESCRITO é intencional: sem aviso. */
+        if (ok && *campos[4] == '\0')
+            diag_aviso(d,
+                       "linha %d: tarefa \"%s\": periodo nao informado; "
+                       "padrao 0, tratada como aperiodica",
+                       num, campos[0]);
 
         /* ID da tarefa: TEXTO (ex. "t06"), e não número. Três recusas, cada
          * uma com a linha e o motivo (req. 3.3.6):
@@ -503,6 +558,18 @@ int config_carregar_texto(const char *conteudo, Estado *e, Diagnostico *d)
                 t.prazo = t.periodo;
             }
         }
+        else
+        {
+            /* [6.5] Aperiódica e esporádica: o prazo é lido como está
+             * (inteiro >= 0, vazio = 0).
+             * TODO [6.5]: DECIDIR o que prazo 0 significa e anotar (decisão
+             * 5.2 do kanban). Sugestão:
+             *   - ESPORADICA: prazo 0 = |periodo|, como o Di = Pi das
+             *     periódicas logo acima, com o mesmo tipo de aviso;
+             *   - APERIODICA: prazo 0 = SEM prazo (tarefa soft); quem
+             *     respeita isso é tem_prazo() em kernel.c. */
+            t.prazo = campo_int_min(d, num, "prazo", campos[5], 0, 0, &ok);
+        }
 
         /* campo 7 (eventos) leva o resto da linha; aqui so poda ';'/espacos no fim */
         {
@@ -524,6 +591,20 @@ int config_carregar_texto(const char *conteudo, Estado *e, Diagnostico *d)
             }
 
             snprintf(t.eventos, sizeof t.eventos, "%s", campos[6]);
+        }
+
+        /* [6.2] e [6.3] ESPORÁDICA: interpretar a lista e conferir o
+         * intervalo mínimo. Formato ruim é ERRO (reprova o arquivo); o
+         * intervalo violado só IGNORA esta tarefa (o continue pula a linha
+         * sem mexer em 'valido'), com o aviso já dado.
+         * TODO [6.2]: lista de eventos numa periódica ou aperiódica: hoje é
+         * guardada e não usada (é assim desde o Projeto A). Avisar? */
+        if (ok && t.tipo == TIPO_ESPORADICA)
+        {
+            if (!ler_lista_eventos(d, num, &t))
+                ok = 0;
+            else if (!intervalo_minimo_ok(d, num, &t))
+                continue;
         }
 
         /* id duplicado invalida a tarefa (mas nao aborta o parse das demais).
@@ -576,10 +657,32 @@ int config_carregar_texto(const char *conteudo, Estado *e, Diagnostico *d)
                   "arquivo sem a linha de parametros (algoritmo;quantum;qtde_cpus)");
         valido = 0;
     }
-    else if (valido && e->ntarefas == 0)
+    else if (valido)
     {
-        diag_erro(d, "nenhuma tarefa periodica para simular");
-        valido = 0;
+        /* Aperiódica e esporádica só executam DENTRO de um servidor (req.
+         * B 1.1). Sem periódica nenhuma não há o que escalonar: continua
+         * sendo erro, como no Projeto A. Com aperiódicas e nenhum servidor,
+         * elas chegam e esperam para sempre na fila: o usuário é avisado.
+         * TODO [7]: servidor conta como periódica aqui (é uma), e
+         * 'servidores' passa a ser contado de verdade. */
+        int periodicas = 0, aperiodicas = 0, servidores = 0;
+
+        for (int i = 0; i < e->ntarefas; i++)
+        {
+            if (e->tarefas[i].tipo == TIPO_PERIODICA)
+                periodicas++;
+            else
+                aperiodicas++;
+        }
+        if (periodicas == 0)
+        {
+            diag_erro(d, "nenhuma tarefa periodica para simular");
+            valido = 0;
+        }
+        else if (aperiodicas > 0 && servidores == 0)
+            diag_aviso(d, "%d tarefa(s) aperiodica(s)/esporadica(s) e nenhum servidor "
+                          "(BS, PS, DS, SS): elas chegam, mas nao executam",
+                       aperiodicas);
     }
 
     /* so aloca e->cpus (qtde definida no cabecalho) se tudo ate aqui foi valido */

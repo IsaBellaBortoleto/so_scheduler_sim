@@ -254,7 +254,7 @@ static void teste_config(void)
     /* Uma string com as regras que mais quebram: algoritmo em minusculas
      * (3.3.2), linha com e sem ';' final (3.3.3), linha em branco, espacos
      * nos campos e comentario (3.3.6), CRLF de arquivo do Windows, cor e
-     * prazo vazios (3.2) e uma tarefa aperiodica (4.4). */
+     * prazo vazios (3.2) e uma tarefa aperiodica (req. B 1.2). */
     static const char texto[] =
         "\xEF\xBB\xBF"                       /* BOM: tem que ser pulado */
         "# comentario\r\n"
@@ -270,17 +270,20 @@ static void teste_config(void)
 
     memset(&d, 0, sizeof d);
     assert(config_carregar_texto(texto, &e, &d) == 1);
-    assert(d.n_erros == 0 && d.n_avisos == 1);          /* a aperiodica */
+    assert(d.n_erros == 0 && d.n_avisos == 1);          /* sem servidor */
     assert(strcmp(e.algoritmo, "EDF") == 0);
     assert(e.quantum == 3 && e.ncpus == 2 && e.tick == 0);
-    assert(e.ntarefas == 2);
+    assert(e.ntarefas == 3);
+    assert(e.tarefas[0].tipo == TIPO_PERIODICA);
+    assert(e.tarefas[2].tipo == TIPO_APERIODICA && e.tarefas[2].prazo == 7);
     assert(strcmp(e.tarefas[0].id, "1") == 0 && e.tarefas[0].r == 0xFF && e.tarefas[0].prazo == 8);
     assert(strcmp(e.tarefas[1].id, "2") == 0 && e.tarefas[1].r == PADRAO_COR_R);
     assert(e.tarefas[1].ingresso == 1 && e.tarefas[1].duracao == 2);
     assert(e.tarefas[1].prazo == 5);                    /* vazio = periodo */
     assert(e.tarefas[0].cpu == -1 && e.tarefas[0].estado == EST_INATIVA);
-    /* O aviso da aperiodica cita o 0, porque o 0 esta escrito no arquivo. */
-    assert(strstr(d.avisos[0], "(periodo 0)") != NULL);
+    /* O 0 ESCRITO e intencional: o unico aviso e o de que nenhum servidor
+     * vai executar a aperiodica (req. B 1.1). */
+    assert(strstr(d.avisos[0], "nenhum servidor") != NULL);
     assert(e.cpus[1].id == 1 && e.cpus[1].tarefa == -1);
     estado_liberar(&e);
 
@@ -291,11 +294,12 @@ static void teste_config(void)
     assert(e.quantum == PADRAO_QUANTUM && e.ncpus == PADRAO_CPUS);
     estado_liberar(&e);
 
-    /* Periodo em branco: vale o padrao 0, a tarefa e ignorada, e o aviso
-     * diz que o 0 veio do padrao (o usuario nao escreveu 0 no arquivo). */
+    /* Periodo em branco: vale o padrao 0 (aperiodica), e o aviso diz que o
+     * 0 veio do padrao (o usuario pode ter esquecido o campo). */
     memset(&d, 0, sizeof d);
     assert(config_carregar_texto("rm;2;1\n1;;0;1;5;5\n2;;0;1;;", &e, &d) == 1);
-    assert(e.ntarefas == 1 && d.n_avisos == 1);
+    assert(e.ntarefas == 2 && d.n_avisos == 2);
+    assert(e.tarefas[1].tipo == TIPO_APERIODICA);
     assert(strstr(d.avisos[0], "periodo nao informado") != NULL);
     estado_liberar(&e);
 
@@ -314,10 +318,13 @@ static void teste_config(void)
     memset(&d, 0, sizeof d);
     assert(config_carregar_texto("RM;2;1\n", &e, &d) == 0);           /* sem tarefas */
 
-    /* Periodo negativo e ERRO (3.3), e a mensagem traz o numero da linha
-     * contando as linhas em branco, para bater com o editor do usuario. */
+    /* Periodo que nao e numero e ERRO (3.3), e a mensagem traz o numero da
+     * linha contando as linhas em branco, para bater com o editor do
+     * usuario. (Periodo negativo deixou de ser erro: e esporadica, B 1.3.)
+     * TODO [6.2/6.3]: casos da esporadica -- lista "0,5,10" com |P| = 5
+     * carrega; "0,5,8" e ignorada com aviso; "0,x" e "5,0" sao erro. */
     memset(&d, 0, sizeof d);
-    assert(config_carregar_texto("RM;2;1\n\n1;;0;1;-4", &e, &d) == 0);
+    assert(config_carregar_texto("RM;2;1\n\n1;;0;1;x", &e, &d) == 0);
     assert(d.n_erros == 1 && strstr(d.erros[0], "linha 3") != NULL);
 
     /* Tres decisoes de projeto, na mesma leitura:
@@ -992,7 +999,7 @@ static void teste_estado_json(void)
     sim_liberar(&s);
 
     /* Avisos do carregamento (resposta de /api/carregar). A tarefa 2 tem
-     * periodo 0: e aperiodica, fica de fora e gera um aviso (req. 4.4). O
+     * periodo 0: e aperiodica, e sem servidor gera um aviso (req. B 1.1). O
      * carregamento e feito a mao, sem iniciar_de_texto, para o teste ficar
      * com o Diagnostico em maos. */
     {
@@ -1013,8 +1020,10 @@ static void teste_estado_json(void)
         assert(buf[strlen(buf) - 2] == ']' && buf[strlen(buf) - 1] == '}');
         /* Uma vez so: nao pode repetir a cada tarefa. */
         assert(strstr(strstr(buf, "\"avisos\"") + 1, "\"avisos\"") == NULL);
-        /* So a tarefa periodica entrou. */
-        assert(strstr(buf, "{\"id\":\"1\",") != NULL && strstr(buf, "{\"id\":\"2\",") == NULL);
+        /* As duas entraram, cada uma com o seu tipo. */
+        assert(strstr(buf, "{\"id\":\"1\",\"cor\":\"#") != NULL);
+        assert(strstr(buf, "{\"id\":\"2\",") != NULL);
+        assert(strstr(buf, "\"tipo\":\"APERIODICA\"") != NULL);
 
         /* Sem diagnostico (as outras rotas): o campo nem aparece. */
         assert(estado_json_com_avisos(&s, NULL, buf, sizeof buf) > 0);

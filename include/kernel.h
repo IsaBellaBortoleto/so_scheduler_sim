@@ -40,6 +40,12 @@ int  sim_editar_tarefa(Simulacao *s, const char *id_tarefa, const char *campo,
 
 void sim_liberar(Simulacao *s);
 
+/* [6.4] Fila de aperiódicas (req. B 1.1 e 2.2): escreve em fila[] os índices
+ * das aperiódicas/esporádicas PRONTAS, em ordem de chegada, e devolve
+ * quantas são. fila[] precisa caber e->ntarefas índices. Quem consome é o
+ * servidor (seção 7); a página mostra (6.6). */
+int sim_fila_aperiodicas(const Estado *e, int *fila);
+
 /* Troca o algoritmo de escalonamento no meio da simulação (req. 3.1).
  * Vale a partir do próximo tick; no tick 0 (nada executou ainda) vale já
  * para o primeiro intervalo. Devolve 1 se trocou; 0 se recusou, com o

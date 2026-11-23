@@ -13,7 +13,9 @@
  *          tick++              o ÚNICO lugar em que o tempo anda
  *          executar()          quem está na CPU trabalha 1 unidade
  *          verificar_prazos()  quem passou do deadline é marcado (req. 3.3)
- *          ativar()            periódicas que vencem agora viram PRONTAS
+ *          ativar()            chegadas do tick viram PRONTAS (periódicas na
+ *                              fila de prontos; aperiódicas e esporádicas na
+ *                              fila de aperiódicas, req. B 1.1)
  *          escalonar()         SÓ SE houve evento (senão só conta CPU ociosa)
  *      snapshot()              congela tudo em historico[tick] (req. 1.5.2)
  *
@@ -155,10 +157,24 @@ static int calcular_limite(const Estado *e)
     for (int i = 0; i < e->ntarefas; i++)
     {
         const TCB *t = &e->tarefas[i];
-        long long chegada = t->ingresso + (long long)(MAX_ATIVACOES - 1) * t->periodo;
+        /* Última chegada e número de execuções dependem do tipo: a
+         * aperiódica chega uma vez, no ingresso; a esporádica, uma vez por
+         * instante da lista (instantes[] está em ordem crescente). */
+        long long chegada = t->ingresso;
+        int execucoes = 1;
+        if (t->tipo == TIPO_PERIODICA)
+        {
+            chegada += (long long)(MAX_ATIVACOES - 1) * t->periodo;
+            execucoes = MAX_ATIVACOES;
+        }
+        else if (t->tipo == TIPO_ESPORADICA && t->n_instantes > 0)
+        {
+            chegada = t->instantes[t->n_instantes - 1];
+            execucoes = t->n_instantes;
+        }
         if (chegada > ultima_chegada)
             ultima_chegada = chegada;
-        trabalho += (long long)MAX_ATIVACOES * t->duracao;
+        trabalho += (long long)execucoes * t->duracao;
     }
     limite = 2 * (ultima_chegada + trabalho);
     if (limite < MAX_TICKS)
@@ -187,6 +203,90 @@ static void ativar_tarefa(TCB *t, int tick)
     t->sorteada = 0;
 }
 
+/* ------------------- Projeto B: aperiódicas e esporádicas ----------------- */
+
+/* [6.4] Responde só "esta aperiódica/esporádica chega NESTE tick?". Não
+ * mexe no TCB: quem registra a chegada é chegada_aperiodica().
+ * TODO [6.4]:
+ *   - APERIODICA: tick == t->ingresso (uma única chegada);
+ *   - ESPORADICA: ainda falta chegar alguma (prox_evento < n_instantes) e
+ *     tick == t->instantes[t->prox_evento]. instantes[] já está em tick
+ *     ABSOLUTO (o parser somou o ingresso). */
+static int chegou_aperiodica(const TCB *t, int tick)
+{
+    (void)t; (void)tick;
+    return 0;
+}
+
+/* [6.4] Registra a chegada de uma aperiódica/esporádica. Ela fica PRONTA,
+ * mas NÃO disputa CPU: escalonar() só põe na fila de prontos quem passa em
+ * vai_para_fila_de_prontos(). PRONTA aqui = "na fila de aperiódicas" (ver
+ * sim_fila_aperiodicas em kernel.h).
+ * TODO [6.4], na mesma lógica das periódicas em ativar():
+ *   - ESPORADICA: prox_evento++ (esta ocorrência já chegou);
+ *   - INATIVA: ativar_tarefa(t, tick) e s->precisa_escalonar = 1. É
+ *     EVENTO: na seção 7 um servidor (DS, SS) reage à chegada;
+ *   - ainda na fila ou executando a ocorrência anterior: pendentes++;
+ *   - CONCLUIDA: nada (só por edição manual chega-se aqui assim). */
+static void chegada_aperiodica(Simulacao *s, TCB *t)
+{
+    (void)s; (void)t;
+}
+
+/* [6.5] A execução atual tem prazo a verificar?
+ * TODO [6.5]: depende da decisão do parser (config.c, bloco do prazo). Com
+ * a sugestão de lá: APERIODICA com prazo 0 = sem prazo (soft) -> 0. Hoje
+ * devolve 1 para todas, como no Projeto A. */
+static int tem_prazo(const TCB *t)
+{
+    (void)t;
+    return 1;
+}
+
+/* [6.5] Depois de terminar uma execução (ativacoes já somou esta): era a
+ * última? Então a tarefa vira CONCLUIDA.
+ * TODO [6.5]: MAX_ATIVACOES (req. 4.4) só vale para as periódicas.
+ *   - APERIODICA: depois de 1 execução;
+ *   - ESPORADICA: quando não falta chegar nenhuma ocorrência
+ *     (prox_evento == n_instantes) e nenhuma está esperando (pendentes == 0). */
+static int foi_a_ultima_execucao(const TCB *t)
+{
+    return t->ativacoes >= MAX_ATIVACOES;
+}
+
+/* [6.5] Tick em que chegou a próxima execução PENDENTE (o prazo dela conta
+ * de lá). Chamar ANTES de pendentes--.
+ * TODO [6.5] ESPORADICA: as pendentes são as últimas que chegaram, de
+ * instantes[prox_evento - pendentes] até instantes[prox_evento - 1]; a
+ * próxima a executar é a mais antiga delas. */
+static int chegada_da_pendente(const TCB *t)
+{
+    return t->ativacao + t->periodo;
+}
+
+/* [6.4] Req. B 1.1: só periódicas disputam a CPU pela fila de prontos.
+ * Aperiódicas e esporádicas ficam de fora, senão roubariam CPU das
+ * periódicas e invalidariam o teste de escalonabilidade delas.
+ * TODO [7]: TIPO_SERVIDOR também entra (o servidor É uma periódica). */
+static int vai_para_fila_de_prontos(const TCB *t)
+{
+    return t->tipo == TIPO_PERIODICA;
+}
+
+/* [6.4] Fila de aperiódicas IMPLÍCITA: não é um vetor guardado, é montada
+ * na hora a partir do TCB (aperiódica/esporádica em PRONTA). Assim entra no
+ * histórico de graça e não há nada para manter sincronizado. Quando um
+ * servidor pega uma tarefa ela vira EXECUTANDO e sai da fila sozinha:
+ * nenhum outro servidor a vê (req. B 2.2).
+ * TODO [6.4]: preencher fila[] com os ÍNDICES dessas tarefas, em ordem de
+ * chegada (campo 'ativacao'; empate: id_comparar, para ser determinístico),
+ * e devolver quantas são. */
+int sim_fila_aperiodicas(const Estado *e, int *fila)
+{
+    (void)e; (void)fila;
+    return 0;
+}
+
 /* ATIVAÇÃO — uma tarefa periódica chega quando o relógio alcança o tick
  * guardado em proxima_ativacao; nesse momento a chegada seguinte já fica
  * agendada (proxima_ativacao += periodo).
@@ -202,8 +302,13 @@ static void ativar(Simulacao *s)
     for (int i = 0; i < executando->ntarefas; i++)
     {
         TCB *tarefa = &executando->tarefas[i];
-        int chegou = tarefa->periodo > 0 &&
-                     executando->tick == tarefa->proxima_ativacao;
+        if (tarefa->tipo != TIPO_PERIODICA)
+        {
+            if (chegou_aperiodica(tarefa, executando->tick))
+                chegada_aperiodica(s, tarefa); /* [6.4] */
+            continue;
+        }
+        int chegou = executando->tick == tarefa->proxima_ativacao;
         if (!chegou)
             continue;
         tarefa->proxima_ativacao += tarefa->periodo; /* agenda a seguinte */
@@ -256,7 +361,8 @@ static void escalonar(Simulacao *s)
     
     for (int i = 0; i < e->ntarefas; i++)
     {
-        if (e->tarefas[i].estado == EST_PRONTA || e->tarefas[i].estado == EST_EXECUTANDO)
+        if ((e->tarefas[i].estado == EST_PRONTA || e->tarefas[i].estado == EST_EXECUTANDO) &&
+            vai_para_fila_de_prontos(&e->tarefas[i]))
         {
             candidatos[n_candidatos] = i;
             n_candidatos++;
@@ -337,17 +443,19 @@ static void executar(Simulacao *s)
                  soltar_cpu(executando, tarefa);
                  tarefa->quantum_restante = 0;
                  tarefa->ativacoes++;
-                 if (tarefa->ativacoes >= MAX_ATIVACOES)
+                 if (foi_a_ultima_execucao(tarefa)) /* [6.5] */
                  {
                      tarefa->estado = EST_CONCLUIDA;
                      tarefa->pendentes = 0; /* fez as 10: acabou */
                  }
                  else if (tarefa->pendentes > 0)
                  {
-                     /* Já havia outra execução esperando: ela chegou um período depois
-                      * da que acabou de terminar, e o prazo dela conta DE LÁ. */
+                     /* Já havia outra execução esperando: o prazo dela conta
+                      * da chegada DELA (periódica: um período depois da que
+                      * acabou de terminar). */
+                     int chegada = chegada_da_pendente(tarefa); /* [6.5] */
                      tarefa->pendentes--;
-                     ativar_tarefa(tarefa, tarefa->ativacao + tarefa->periodo);
+                     ativar_tarefa(tarefa, chegada);
                  }
                  else
                  {
@@ -382,6 +490,7 @@ static void verificar_prazos(Simulacao *s)
     {
         TCB *tarefa = &executando->tarefas[i];
         if (tarefa->estado != EST_INATIVA && tarefa->estado != EST_CONCLUIDA &&
+            tem_prazo(tarefa) && /* [6.5] */
             executando->tick >= tarefa->deadline_abs)
             tarefa->perdeu_prazo = 1;
     }
@@ -695,6 +804,11 @@ static int aplicar_edicao(Simulacao *s, const char *id_tarefa, const char *campo
          * restante, prazo novo etc. Só trocar o estado faria a tarefa rodar
          * com 0 de trabalho. SUSPENSA -> PRONTA é retomar: mantém o que
          * faltava. */
+        /* TODO [6.6]: INATIVA -> PRONTA numa aperiódica/esporádica antecipa
+         * uma chegada que ativar() ainda vai trazer no tick dela (a
+         * aperiódica chegaria DUAS vezes). Decidir: recusar com motivo, ou
+         * consumir a chegada (aperiódica: marcar que já chegou; esporádica:
+         * prox_evento++). */
         if (tarefa->estado == EST_INATIVA && novo_estado == EST_PRONTA)
             ativar_tarefa(tarefa, s->atual.tick);
         else
@@ -766,8 +880,20 @@ static int aplicar_edicao(Simulacao *s, const char *id_tarefa, const char *campo
     /* ---- campo PERIODO ---- */
     if (strcmp(campo, "periodo") == 0)
     {
-        /* Período 0 seria tarefa aperiódica, que só existe no Projeto B;
-         * negativo é erro (req. 3.3). */
+        /* [6.6] O sinal do período é o TIPO da tarefa (req. B 1.2 e 1.3), e
+         * o tipo não muda no meio da simulação: a execução em andamento
+         * ficaria sem regra de chegada.
+         * TODO [6.6]: permitir mudar o |periodo| de uma ESPORÁDICA? Só
+         * revalidando o intervalo mínimo nas ocorrências que ainda faltam
+         * (de instantes[prox_evento - 1] em diante), com o motivo da recusa. */
+        if (tarefa->tipo != TIPO_PERIODICA)
+        {
+            snprintf(motivo, motivo_tam,
+                     "A tarefa %s e %s: o periodo define o tipo e nao muda durante a simulacao.",
+                     id_tarefa, tipo_nome(tarefa->tipo));
+            return 0;
+        }
+        /* Periódica: 0 ou negativo a transformaria em outro tipo. */
         if (numero < 1)
         {
             snprintf(motivo, motivo_tam,

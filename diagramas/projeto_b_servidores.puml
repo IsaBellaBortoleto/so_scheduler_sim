@@ -1,0 +1,74 @@
+@startuml projeto_b_servidores
+title Servidores de tarefas aperiódicas — o que cada tipo faz a cada tick (Projeto B)
+
+' ----------------------------------------------------------------------------
+' Base: seção 2.8.1 do capítulo "Escalonamento de Tempo-Real" (figuras 2.14 a
+' 2.17) e kanban 7.2 a 7.8. Roda dentro de tratar_tick(), DEPOIS das
+' chegadas: a fila global de aperiódicas já tem as que chegaram neste tick.
+' A única diferença entre os quatro tipos é QUANDO o servidor pode executar
+' e COMO a capacidade volta. Todo o resto é igual para todos.
+' ----------------------------------------------------------------------------
+
+start
+:Para cada servidor do sistema;
+
+switch (Tipo do servidor?)
+case (BS — Background)
+  :Sem capacidade nem período\n(não entra no teste de escalonabilidade);
+  :Só pode executar quando NÃO há\nperiódica pronta ou executando\n(prioridade mais baixa de todas);
+case (PS — Polling)
+  if (Início de período?) then (sim)
+    :Capacidade = Cs (recarga total);
+    if (Fila global de aperiódicas vazia?) then (sim)
+      :Capacidade PERDIDA até o próximo período\n(quem chegar depois espera o período seguinte);
+    endif
+  endif
+  :Atendeu tudo e a fila esvaziou?\n-> o que sobrou da capacidade também se perde;
+case (DS — Deferrable)
+  if (Início de período?) then (sim)
+    :Capacidade = Cs (recarga total,\nnão acumula além de Cs);
+  endif
+  :CONSERVA a capacidade durante o período:\natende assim que a aperiódica chega\n(se tiver capacidade e prioridade);
+case (SS — Sporadic)
+  if (Servidor ficou ativo agora\n(prioridade dele ativa e capacidade > 0)?) then (sim)
+    :Agenda a recarga para\ntempo de preenchimento = início do\nintervalo ativo + Ps;
+  endif
+  if (Chegou um tempo de preenchimento?) then (sim)
+    :Recarrega SÓ o que foi consumido\nnaquele intervalo ativo;
+  endif
+endswitch
+
+if (Capacidade > 0 e o servidor\nnão está atendendo ninguém?) then (sim)
+  if (Fila global de aperiódicas vazia?) then (não)
+    :RETIRA a primeira da fila\n(política: kanban 5.2, em aberto);
+    :A tarefa fica presa a ESTE servidor:\nnenhum outro pode atendê-la [7.2][7.8];
+    :Evento: precisa_escalonar = 1;
+  else (sim)
+  endif
+else (não)
+endif
+
+:O servidor disputa CPU no escalonar()\ncomo uma tarefa periódica comum\n(BS: só se não há periódica pronta);
+
+if (Servidor ganhou CPU neste tick?) then (sim)
+  :Cada tick na CPU: capacidade - 1\ne exec_restante da aperiódica - 1;
+  if (Aperiódica terminou?) then (sim)
+    :Solta a tarefa; pode pegar a próxima da fila\n(se ainda tiver capacidade);
+  elseif (Capacidade chegou a 0?) then (sim)
+    :Servidor sai da CPU; a aperiódica fica\ncom ELE, esperando a recarga [7.7];
+  endif
+  :Gantt: servidor com preenchimento diferente\ne a aperiódica marcada no mesmo intervalo [9.1];
+else (não, perdeu para uma periódica)
+  :Preempção: servidor e a aperiódica\nque ele atende esperam juntos;
+endif
+
+stop
+
+legend bottom
+  Teste de escalonabilidade [8.3]: PS e SS contam como periódica (Cs/Ps);
+  DS pela equação [19] do capítulo; BS não consome utilização.
+  Testes [10.1]: refazer as figuras 2.14 (BS), 2.15 (PS), 2.16 (DS) e 2.17 (SS)
+  multiplicando os tempos por 2 (o livro usa meia unidade de tempo).
+endlegend
+
+@enduml
