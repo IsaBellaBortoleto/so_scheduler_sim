@@ -1124,6 +1124,7 @@ static void teste_aperiodicas(void)
     Simulacao s;
     TCB *t;
     int fila[8], n;
+    char m[256];
 
     /* RM, 1 CPU. 1: periodica (C 1, P 4). a1: aperiodica no tick 3, sem
      * prazo. e1: esporadica criada em 2, |P| 5, instantes 0,5,12 -> chega
@@ -1189,6 +1190,49 @@ static void teste_aperiodicas(void)
     t[2].estado = EST_EXECUTANDO; t[2].cpu = 1; s.atual.cpus[1].tarefa = 2;
     sim_avancar(&s);
     assert(s.atual.tarefas[2].estado == EST_CONCLUIDA);
+    sim_liberar(&s);
+
+    /* CHEGADA MANUAL (INATIVA -> PRONTA). Aperiodica: consome a chegada
+     * (nao chega de novo no ingresso). Esporadica: so se a ultima chegada
+     * real foi ha >= |P| ticks; consome a proxima ocorrencia. */
+    iniciar_de_texto(&s, "RM;0;1\n1;;0;1;4\na1;;3;1;0\ne1;;0;1;-5;;0,10");
+    assert(sim_editar_tarefa(&s, "a1", "estado", "PRONTA", m, sizeof m));
+    assert(s.atual.tarefas[1].proxima_ativacao == SEM_CHEGADA);
+    while (s.atual.tick < 3)
+        sim_avancar(&s);
+    assert(s.atual.tarefas[1].pendentes == 0 && s.atual.tarefas[1].ativacao == 0);
+
+    assert(sim_editar_tarefa(&s, "e1", "estado", "INATIVA", m, sizeof m)); /* descarta a de 0 */
+    assert(!sim_editar_tarefa(&s, "e1", "estado", "PRONTA", m, sizeof m)); /* 3 - 0 < 5 */
+    assert(strstr(m, "intervalo minimo e 5"));
+    while (s.atual.tick < 5)
+        sim_avancar(&s);
+    assert(sim_editar_tarefa(&s, "e1", "estado", "PRONTA", m, sizeof m));
+    t = s.atual.tarefas;
+    assert(t[2].ativacao == 5 && t[2].prox_evento == 2 && t[2].proxima_ativacao == SEM_CHEGADA);
+    while (s.atual.tick < 10)
+        sim_avancar(&s);
+    assert(s.atual.tarefas[2].pendentes == 0); /* a de 10 ja foi consumida */
+
+    sim_liberar(&s);
+
+    /* EDICAO DO PERIODO (req. 1.5.2). O sinal e o tipo: nao muda. O |P| da
+     * esporadica muda se as ocorrencias que FALTAM respeitarem o novo
+     * minimo, contando da ultima chegada real. e1 chega em 0, 5 e 12. */
+    iniciar_de_texto(&s, "RM;0;1\n1;;0;1;4\na1;;3;1;0\ne1;;0;1;-5;;0,5,12");
+    assert(!sim_editar_tarefa(&s, "a1", "periodo", "4", m, sizeof m));   /* viraria periodica */
+    assert(!sim_editar_tarefa(&s, "e1", "periodo", "5", m, sizeof m));   /* idem */
+    assert(!sim_editar_tarefa(&s, "1", "periodo", "-4", m, sizeof m));   /* viraria esporadica */
+    assert(strstr(m, "nao muda durante a simulacao"));
+    assert(!sim_editar_tarefa(&s, "e1", "periodo", "-6", m, sizeof m));  /* 0 -> 5: so 5 ticks */
+    assert(strstr(m, "ticks 0 e 5 ficariam a 5 ticks"));
+    assert(sim_editar_tarefa(&s, "e1", "periodo", "-4", m, sizeof m));
+    assert(s.atual.tarefas[2].periodo == -4 && s.atual.tarefas[2].prazo == 4); /* Di acompanha */
+    /* Depois da chegada de 5, so falta a de 12: |P| 7 cabe (12 - 5). */
+    while (s.atual.tick < 5)
+        sim_avancar(&s);
+    assert(sim_editar_tarefa(&s, "e1", "periodo", "-7", m, sizeof m));
+    assert(!sim_editar_tarefa(&s, "e1", "periodo", "-8", m, sizeof m));
     sim_liberar(&s);
 
     printf("autoteste: aperiodicas e esporadicas ... ok\n");

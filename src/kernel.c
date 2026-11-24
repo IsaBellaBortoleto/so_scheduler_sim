@@ -36,6 +36,7 @@
  * ==========================================================================*/
 #include "kernel.h"
 
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -755,6 +756,34 @@ void sim_liberar_copia(const Simulacao *s, Simulacao *copia)
     free(copia->historico);
     estado_liberar(&copia->atual);
 }
+/* [6.6] Edição do |periodo| da esporádica: o intervalo mínimo novo vale para
+ * as ocorrências que AINDA VÃO chegar, cada uma a >= 'minimo' da anterior.
+ * A primeira delas é comparada com a última chegada que já aconteceu (as
+ * passadas não se desfazem): com pendentes, a mais nova é da lista; sem
+ * pendentes, é 'ativacao' (inclui a chegada manual). */
+static int intervalo_novo_ok(const TCB *t, int minimo, char *motivo, int tam)
+{
+    int tem_anterior = t->prox_evento > 0;
+    int anterior = 0;
+
+    if (tem_anterior)
+        anterior = t->pendentes > 0 ? t->instantes[t->prox_evento - 1] : t->ativacao;
+    for (int k = t->prox_evento; k < t->n_instantes; k++)
+    {
+        if (tem_anterior && t->instantes[k] - anterior < minimo)
+        {
+            snprintf(motivo, tam,
+                     "Com intervalo minimo %d, as chegadas dos ticks %d e %d ficariam "
+                     "a %d ticks.",
+                     minimo, anterior, t->instantes[k], t->instantes[k] - anterior);
+            return 0;
+        }
+        anterior = t->instantes[k];
+        tem_anterior = 1;
+    }
+    return 1;
+}
+
 static int aplicar_edicao(Simulacao *s, const char *id_tarefa, const char *campo,
                           const char *valor, char *motivo, int motivo_tam)
 {
@@ -815,6 +844,22 @@ static int aplicar_edicao(Simulacao *s, const char *id_tarefa, const char *campo
                      "A tarefa %s nao esta ativa; nao ha o que suspender.", id_tarefa);
             return 0;
         }
+        /* [6.6] Chegada manual da esporádica também respeita o intervalo
+         * mínimo, contado da última chegada REAL ('ativacao', que inclui as
+         * manuais). Basta olhar a anterior: a ocorrência seguinte da lista
+         * já estava a >= |periodo| de uma chegada que ainda nem tinha
+         * acontecido, então fica mais longe ainda. */
+        if (tarefa->tipo == TIPO_ESPORADICA && tarefa->estado == EST_INATIVA &&
+            novo_estado == EST_PRONTA && tarefa->prox_evento > 0 &&
+            s->atual.tick - tarefa->ativacao < -tarefa->periodo)
+        {
+            snprintf(motivo, motivo_tam,
+                     "A tarefa %s e esporadica: a ultima chegada foi no tick %d e o "
+                     "intervalo minimo e %d (proxima chegada manual a partir do tick %d).",
+                     id_tarefa, tarefa->ativacao, -tarefa->periodo,
+                     tarefa->ativacao - tarefa->periodo);
+            return 0;
+        }
 
         /* Saindo da CPU: solta dos DOIS lados (a CPU guarda a tarefa e a
          * tarefa guarda a CPU), senão a CPU ficaria ocupada por ninguém. */
@@ -824,14 +869,16 @@ static int aplicar_edicao(Simulacao *s, const char *id_tarefa, const char *campo
         /* INATIVA -> PRONTA é uma chegada antecipada: precisa de tempo
          * restante, prazo novo etc. Só trocar o estado faria a tarefa rodar
          * com 0 de trabalho. SUSPENSA -> PRONTA é retomar: mantém o que
-         * faltava. */
-        /* TODO [6.6]: INATIVA -> PRONTA numa aperiódica/esporádica antecipa
-         * uma chegada que ativar() ainda vai trazer no tick dela (a
-         * aperiódica chegaria DUAS vezes). Decidir: recusar com motivo, ou
-         * consumir a chegada (aperiódica: marcar que já chegou; esporádica:
-         * prox_evento++). */
+         * faltava.
+         * [6.6] Aperiódica e esporádica CONSOMEM a chegada que viria
+         * (agendar_proxima): senão ativar() a traria de novo no tick dela e
+         * a aperiódica chegaria duas vezes. A periódica fica como no A. */
         if (tarefa->estado == EST_INATIVA && novo_estado == EST_PRONTA)
+        {
+            if (tarefa->tipo != TIPO_PERIODICA)
+                agendar_proxima(tarefa);
             ativar_tarefa(tarefa, s->atual.tick);
+        }
         else
             tarefa->estado = novo_estado;
         return 1;
@@ -901,25 +948,34 @@ static int aplicar_edicao(Simulacao *s, const char *id_tarefa, const char *campo
     /* ---- campo PERIODO ---- */
     if (strcmp(campo, "periodo") == 0)
     {
-        /* [6.6] O sinal do período é o TIPO da tarefa (req. B 1.2 e 1.3), e
-         * o tipo não muda no meio da simulação: a execução em andamento
-         * ficaria sem regra de chegada.
-         * TODO [6.6]: permitir mudar o |periodo| de uma ESPORÁDICA? Só
-         * revalidando o intervalo mínimo nas ocorrências que ainda faltam
-         * (de instantes[prox_evento - 1] em diante), com o motivo da recusa. */
-        if (tarefa->tipo != TIPO_PERIODICA)
+        /* [6.6] O VALOR do período muda (req. 1.5.2: "características de
+         * qualquer tarefa"), mas o SINAL não: ele é o tipo da tarefa (req. B
+         * 1.2 e 1.3), e a execução em andamento ficaria sem regra de chegada
+         * (req. 3.1: recusa justificada). INT_MIN fica de fora: não tem
+         * |valor| num int. */
+        TipoTarefa novo_tipo = numero > 0 ? TIPO_PERIODICA
+                             : numero == 0 ? TIPO_APERIODICA
+                             : TIPO_ESPORADICA;
+        if (novo_tipo != tarefa->tipo || numero == INT_MIN)
         {
             snprintf(motivo, motivo_tam,
-                     "A tarefa %s e %s: o periodo define o tipo e nao muda durante a simulacao.",
-                     id_tarefa, tipo_nome(tarefa->tipo));
+                     "A tarefa %s e %s; o periodo %d a tornaria %s. O tipo da tarefa "
+                     "nao muda durante a simulacao.",
+                     id_tarefa, tipo_nome(tarefa->tipo), numero, tipo_nome(novo_tipo));
             return 0;
         }
-        /* Periódica: 0 ou negativo a transformaria em outro tipo. */
-        if (numero < 1)
+        if (tarefa->tipo == TIPO_APERIODICA) /* 0 -> 0: nada muda */
+            return 1;
+        if (tarefa->tipo == TIPO_ESPORADICA)
         {
-            snprintf(motivo, motivo_tam,
-                     "O valor %d nao cumpre os pre requisitos (deve ser >= 1).", numero);
-            return 0;
+            if (!intervalo_novo_ok(tarefa, -numero, motivo, motivo_tam))
+                return 0;
+            /* O prazo acompanha se era o padrão (Di = |P|), como na
+             * periódica logo abaixo. */
+            if (tarefa->prazo == -tarefa->periodo)
+                tarefa->prazo = -numero;
+            tarefa->periodo = numero;
+            return 1;
         }
         /* REGRA: o período novo conta a partir da ÚLTIMA chegada.
          *   última chegada = proxima_ativacao - período antigo
