@@ -1049,6 +1049,7 @@ static void teste_estado_json(void)
     assert(strcmp(buf, "{\"carregado\":false,\"tick\":0,\"terminada\":false,"
                        "\"algoritmo\":\"\",\"quantum\":0,\"ncpus\":0,"
                        "\"ultimo_evento\":\"\",\"cpus\":[],\"tarefas\":[],"
+                       "\"fila_aperiodicas\":[],"
                        "\"algoritmos\":[\"RM\",\"EDF\",\"FILA\"]}") == 0);
     /* "FILA" e o algoritmo que teste_escalonador registrou: ele aparece na
      * lista sem ninguem mexer no estado_json.c. E o req. 4.2 funcionando. */

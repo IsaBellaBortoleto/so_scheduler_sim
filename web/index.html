@@ -652,9 +652,9 @@
               <th>cor</th>
               <th data-dica="tick em que a tarefa entra no sistema">ingresso</th>
               <th data-dica="Ci: ticks de CPU de cada execução">duração</th>
-              <th data-dica="Pi: uma chegada a cada Pi ticks">período</th>
-              <th data-dica="Di: prazo contado da chegada; vazio = igual ao período">prazo</th>
-              <th data-dica="lista de eventos (tratada no Projeto B)">eventos</th>
+              <th data-dica="Pi: uma chegada a cada Pi ticks; 0 = aperiódica; negativo = esporádica (|Pi| = intervalo mínimo)">período</th>
+              <th data-dica="Di: prazo contado da chegada; vazio = igual ao período (aperiódica: sem prazo)">prazo</th>
+              <th data-dica="esporádica: instantes das chegadas, relativos ao ingresso (ex. 0,5,12)">eventos</th>
               <th></th>
             </tr>
           </thead>
@@ -752,6 +752,9 @@
 
         <section id="painel-tarefas">
           <h2>tarefas</h2>
+          <!-- Fila de aperiodicas (fila_aperiodicas no JSON): so aparece se
+               o arquivo tem aperiodica ou esporadica (atualizarTabelaTarefas). -->
+          <p id="fila-aperiodicas" hidden></p>
           <table id="tabela-tarefas">
             <thead>
               <tr>
@@ -767,6 +770,9 @@
                   data-dica="estado neste tick: INATIVA, PRONTA, EXECUTANDO, SUSPENSA ou CONCLUIDA"
                 >
                   estado
+                </th>
+                <th data-dica="tipo: P = periódica, A = aperiódica, E = esporádica">
+                  tipo
                 </th>
                 <th data-dica="ingresso: tick em que a tarefa entra no sistema">
                   ing.
@@ -836,19 +842,22 @@
        *     "tarefas": [ {
        *         "id": string (ex. "t06"), "cor": "#RRGGBB",
        *         "ingresso": int, "duracao": int, "periodo": int, "prazo": int,
+       *         "tipo": "PERIODICA"|"APERIODICA"|"ESPORADICA",
+       *         "prox_evento": int, "n_instantes": int,
        *         "estado": "INATIVA"|"PRONTA"|"EXECUTANDO"|"SUSPENSA"|"CONCLUIDA",
        *         "exec_restante": int, "quantum_restante": int,
        *         "ativacao": int, "deadline_abs": int, "ativacoes": int,
        *         "perdeu_prazo": 0|1, "cpu": int (-1 = nenhuma), "sorteada": 0|1,
        *         "eventos": string
-       *     } ]
+       *     } ],
+       *     "fila_aperiodicas": [string...]  (ids, em ordem de chegada)
        *   }
        *
        *   POST /api/carregar   corpo: os BYTES do arquivo escolhido no seletor,
        *                        exatamente como estão no disco (pode ter BOM e
        *                        CRLF -- quem trata é o C, em config_carregar_texto).
        *     sucesso -> Estado (acima) + "avisos": [string...]. Carregar com
-       *                sucesso também pode gerar avisos (ex.: tarefa aperiódica
+       *                sucesso também pode gerar avisos (ex.: esporádica
        *                ignorada), e o req. 4.4 exige que cheguem ao usuário.
        *     falha   -> { "erro": true, "erros": [string...], "avisos": [string...] }
        *
@@ -986,7 +995,7 @@
             mostrarDiagnostico(resp.erros || [], resp.avisos || []);
             return;
           }
-          /* Deu certo. Ainda pode haver avisos (ex.: tarefa aperiódica ignorada,
+          /* Deu certo. Ainda pode haver avisos (ex.: esporádica ignorada,
            * req. 4.4). O "|| []" cobre a resposta sem esse campo. */
           mostrarDiagnostico([], resp.avisos || []);
           aplicarNovoEstado(resp);
@@ -1336,7 +1345,8 @@
               entrada.value = tarefa[campo];
               entrada.setAttribute("aria-label", campo + " da tarefa " + (i + 1));
               if (campo === "id") entrada.maxLength = 15; /* MAX_ID - 1 do C */
-              if (tipo === "number") entrada.min = "0";
+              /* Período negativo = esporádica (req. B 1.3): sem mínimo. */
+              if (tipo === "number" && campo !== "periodo") entrada.min = "0";
               entrada.addEventListener("input", () => {
                 tarefa[campo] = entrada.value;
                 atualizarPreviaManual();
@@ -1519,17 +1529,26 @@
               tr.classList.add("selecionada");
             celula(tr, tarefa.id);
             celula(tr, tarefa.estado);
+            celula(tr, tarefa.tipo.charAt(0)); /* P, A ou E */
             celula(tr, tarefa.ingresso);
             celula(tr, tarefa.duracao);
             celula(tr, tarefa.periodo);
             celula(tr, tarefa.prazo);
             celula(tr, tarefa.exec_restante);
             /* Próxima chegada: mostra o efeito de editar o período. Tarefa
-             * concluída não chega mais. */
-            celula(tr, tarefa.estado === "CONCLUIDA" ? "--" : tarefa.proxima_ativacao);
+             * concluída, ou que não chega mais (-1: aperiódica que já chegou,
+             * esporádica sem ocorrência pela frente), mostra "--". */
+            celula(tr, tarefa.estado === "CONCLUIDA" || tarefa.proxima_ativacao < 0
+                         ? "--" : tarefa.proxima_ativacao);
             celula(tr, tarefa.ativacoes);
             $("#tabela-tarefas tbody").appendChild(tr);
           }
+          /* Fila de aperiódicas (req. B 1.1): elas esperam aqui, fora da fila
+           * de prontos, até um servidor pegar. */
+          const fila = $("#fila-aperiodicas");
+          fila.hidden = !estado.tarefas.some((t) => t.tipo !== "PERIODICA");
+          fila.textContent = "fila de aperiódicas: " +
+            (estado.fila_aperiodicas.length ? estado.fila_aperiodicas.join(", ") : "vazia");
         }
 
         /* --------------------------------- gantt --------------------------------- */
