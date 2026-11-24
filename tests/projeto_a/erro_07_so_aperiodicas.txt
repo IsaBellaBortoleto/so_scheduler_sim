@@ -1,5 +1,6 @@
-# ESPERADO: recusado. Todas as tarefas sao aperiodicas (periodo 0) e o
-# Projeto A so simula periodicas: nao sobra nada para simular.
+# ESPERADO: recusado. Todas as tarefas sao aperiodicas (periodo 0), e
+# aperiodica so executa por meio de um servidor, que e uma tarefa
+# periodica: sem nenhuma periodica, nao ha o que simular.
 RM;2;2
 1;E63946;0;2;0;6
 2;2A9D8F;0;3;0;9

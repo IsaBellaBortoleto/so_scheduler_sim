@@ -1,6 +1,7 @@
 # ESPERADO: recusado, com TODOS os erros listados de uma vez, cada um com
-# a sua linha: letra onde era numero, cor invalida, periodo negativo,
-# duracao zero.
+# a sua linha: letra onde era numero, cor invalida, duracao zero.
+# Periodo negativo deixou de ser erro no Projeto B (req. B 1.3): a tarefa 3
+# e esporadica, e sem lista_eventos ela so e ignorada, com aviso.
 RM;2;2
 1;E63946;abc;2;6;6
 2;ZZZZZZ;0;2;6;6

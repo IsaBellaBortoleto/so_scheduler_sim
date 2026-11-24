@@ -44,8 +44,12 @@ ARQUIVOS QUE DEVEM CARREGAR
                             tick 111
 
 07_aperiodicas_misturadas.txt
-                            observado: 2 avisos (periodo 0 e periodo em
-                            branco), simula as outras 3 tarefas
+                            observado (Projeto B, 23/11): 2 avisos
+                            (periodo em branco; nenhum servidor). As
+                            tarefas 3 e 5 agora sao aperiodicas: chegam,
+                            ficam na fila e nao executam; a 3 (prazo 7)
+                            recebe X no tick 9. Termina no tick 84, como
+                            antes. (Projeto A: as duas eram ignoradas.)
 
 08_formato_variado.txt      BOM, CRLF, "edf" em minusculas, ';' final
                             opcional, espacos, linhas em branco
@@ -111,9 +115,13 @@ erro_03_algoritmo_inexistente.txt
                                  carregue o arquivo de novo.'
                                  (a lista cresce se o usuario ja criou algoritmos)
 erro_04_zero_cpus.txt            'linha 2: qtde_cpus invalido "0" ...'
-erro_05_campos_invalidos.txt     os 4 erros de uma vez, cada um com a linha
+erro_05_campos_invalidos.txt     os 3 erros de uma vez, cada um com a linha,
+                                 e 1 aviso (a esporadica sem lista, linha 7;
+                                 no Projeto A o periodo negativo era o 4o erro)
 erro_06_id_repetido.txt          'linha 4: id "1" repetido (ja usado por "1")'
-erro_07_so_aperiodicas.txt       erro + um aviso por tarefa ignorada
+erro_07_so_aperiodicas.txt       erro "nenhuma tarefa periodica para
+                                 simular" (aperiodica so executa por
+                                 servidor, que tambem e periodica)
 erro_08_binario.txt              3000 bytes aleatorios (o "arquivo que nao e
                                  texto"): "o arquivo escolhido nao e um
                                  arquivo de texto; escolha o .txt de
