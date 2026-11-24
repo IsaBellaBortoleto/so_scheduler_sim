@@ -152,11 +152,12 @@ static int snapshot(Simulacao *s)
  * arquivo, e a conta em int poderia estourar. */
 static int calcular_limite(const Estado *e)
 {
-    long long ultima_chegada = 0, trabalho = 0, limite, teto;
+    long long ultima_chegada = 0, trabalho = 0, limite, teto, instantes = 0;
 
     for (int i = 0; i < e->ntarefas; i++)
     {
         const TCB *t = &e->tarefas[i];
+        instantes += t->n_instantes;
         /* Última chegada e número de execuções dependem do tipo: a
          * aperiódica chega uma vez, no ingresso; a esporádica, uma vez por
          * instante da lista (instantes[] está em ordem crescente). */
@@ -180,10 +181,12 @@ static int calcular_limite(const Estado *e)
     if (limite < MAX_TICKS)
         limite = MAX_TICKS;
 
-    /* Bytes de UMA foto: a struct Estado mais os vetores de tarefas e CPUs. */
+    /* Bytes de UMA foto: a struct Estado mais os vetores de tarefas, de CPUs
+     * e de instantes das esporádicas (cada foto tem a sua cópia). */
     teto = MAX_MEMORIA_HIST / ((long long)sizeof(Estado) +
                                (long long)e->ntarefas * sizeof(TCB) +
-                               (long long)e->ncpus * sizeof(CPU));
+                               (long long)e->ncpus * sizeof(CPU) +
+                               instantes * (long long)sizeof(int));
     if (limite > teto)
         limite = teto;
     return (int)limite; /* cabe: teto <= 1 GB / sizeof(Estado) */

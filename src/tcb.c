@@ -26,6 +26,13 @@
  * vetores de tarefas e de CPUs. Se faltar memoria, o vetor que falhou volta
  * NULL com o contador em 0 (nunca ntarefas > 0 com tarefas == NULL); quem
  * chama confere comparando os contadores com os do original. */
+/* Libera os vetores de instantes das tarefas (só as esporádicas têm). */
+static void liberar_instantes(TCB *tarefas, int n)
+{
+    for (int i = 0; i < n; i++)
+        free(tarefas[i].instantes);
+}
+
 Estado estado_clonar(const Estado *e)
 {
      /* '=' copia os campos simples de uma vez (inclusive algoritmo[16]). Os
@@ -41,6 +48,29 @@ Estado estado_clonar(const Estado *e)
       if (copia.tarefas != NULL)
       {
         memcpy(copia.tarefas, e->tarefas,e->ntarefas*sizeof(*e->tarefas));
+        /* TCB.instantes e PONTEIRO: o memcpy so copiou o endereco. Cada
+         * foto precisa do seu vetor, senao liberar uma estragaria as outras. */
+        for (int i = 0; i < e->ntarefas; i++)
+        {
+            const TCB *t = &e->tarefas[i];
+            int *v = NULL;
+            if (t->n_instantes > 0)
+            {
+                v = malloc((size_t)t->n_instantes * sizeof *v);
+                if (v == NULL)
+                {
+                    /* Falhou no meio: desfaz o que ja foi duplicado e
+                     * devolve o vetor de tarefas vazio (contrato acima). */
+                    liberar_instantes(copia.tarefas, i);
+                    free(copia.tarefas);
+                    copia.tarefas = NULL;
+                    copia.ntarefas = 0;
+                    break;
+                }
+                memcpy(v, t->instantes, (size_t)t->n_instantes * sizeof *v);
+            }
+            copia.tarefas[i].instantes = v;
+        }
       }else
       {
         copia.ntarefas = 0;
@@ -65,6 +95,8 @@ Estado estado_clonar(const Estado *e)
  * free(NULL) nao faz nada. */
 void estado_liberar(Estado *e)
 {
+    if (e->tarefas != NULL)
+        liberar_instantes(e->tarefas, e->ntarefas);
     free(e->tarefas);
     free(e->cpus);
     e->tarefas = NULL;

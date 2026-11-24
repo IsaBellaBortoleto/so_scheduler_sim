@@ -302,36 +302,52 @@ static int campo_int_min(Diagnostico *d, int linha, const char *nome,
 
 /* ------------------- Projeto B: aperiódicas e esporádicas ----------------- */
 
+/* Para o qsort: ordem crescente. (x > y) - (x < y) e não x - y, que pode
+ * estourar com números grandes. */
+static int comparar_int(const void *a, const void *b)
+{
+    int x = *(const int *)a, y = *(const int *)b;
+    return (x > y) - (x < y);
+}
+
 /* [6.2] Lista de eventos da esporádica (req. B 1.3): "0,5,12" com ingresso
  * 10 vira t->instantes = {10, 15, 22}. O arquivo traz instantes RELATIVOS
  * ao ingresso; o TCB guarda o tick ABSOLUTO, que é o que o núcleo compara.
- * Devolve 1 se a lista é válida; 0 se não, com o ERRO em d.
+ * 'texto' é o campo do arquivo INTEIRO (não o t->eventos, que é cortado em
+ * 255 caracteres para a tela): nenhum instante se perde. O corte é feito
+ * nele mesmo; o parser não usa esse campo depois daqui.
+ * Devolve 1 se a lista é válida (n_instantes pode ser 0: lista vazia); 0
+ * se não, com o ERRO em d e t->instantes liberado.
  *
- * Formato ruim é ERRO (aqui); intervalo mínimo violado é AVISO e só ignora a
- * tarefa (6.3). Por isso instantes iguais ("5,5") passam daqui.
- * Também são ERRO: lista vazia (a tarefa nunca chegaria), fora de ordem
- * (ordenar sozinho esconderia um engano do usuário), ",," ou vírgula no
- * fim, mais de MAX_EVENTOS (vetor fixo dentro do TCB, por causa do memcpy
- * do histórico) e ingresso + instante acima de INT_MAX. */
-static int ler_lista_eventos(Diagnostico *d, int linha, TCB *t)
+ * O enunciado define só "instante01,instante02,...". Para nunca recusar um
+ * arquivo nesse formato (req. 3.3.7), tudo que tem um sentido claro é
+ * aceito:
+ *   - sem limite de ocorrências (req. 3.3.5, "inúmeros eventos");
+ *   - fora de ordem: ORDENADA com aviso (o intervalo mínimo é entre
+ *     ocorrências consecutivas no TEMPO);
+ *   - pedaço vazio (",," ou vírgula no fim): ignorado, como espaços e
+ *     linhas em branco (req. 3.3.6) e o ';' final (3.3.3).
+ * ERRO só quando o pedaço não é um instante: "x", negativo, ou ingresso +
+ * instante acima de INT_MAX. Instantes iguais ("5,5") passam daqui: quem
+ * acusa é o intervalo mínimo (6.3). */
+static int ler_lista_eventos(Diagnostico *d, int linha, TCB *t, char *texto)
 {
-    char buf[MAX_EVENTOS_TXT];
     char *pedaco, *sep;
+    int cap = 1, fora_de_ordem = 0;
 
+    /* Cada vírgula separa no máximo mais um instante: aloca uma vez só. */
+    for (const char *c = texto; *c; c++)
+        cap += (*c == ',');
     t->n_instantes = 0;
-    /* Cópia: o corte troca ',' por '\0', e t->eventos vai inteiro para a página. */
-    snprintf(buf, sizeof buf, "%s", t->eventos);
-
-    if (*trim(buf) == '\0')
+    t->instantes = malloc((size_t)cap * sizeof *t->instantes);
+    if (t->instantes == NULL)
     {
-        diag_erro(d, "linha %d: tarefa \"%s\" e esporadica (periodo < 0) mas nao tem lista_eventos",
-                  linha, t->id);
+        diag_erro(d, "falta de memoria na linha %d", linha);
         return 0;
     }
 
-    /* Corte com strchr, como em split_campos. O strtok juntaria ",," e o
-     * pedaço vazio passaria sem erro. */
-    for (pedaco = buf; pedaco != NULL; pedaco = sep)
+    /* Corte com strchr, como em split_campos: pedaço vazio aparece como "". */
+    for (pedaco = texto; pedaco != NULL; pedaco = sep)
     {
         int valor;
         char *txt;
@@ -340,55 +356,69 @@ static int ler_lista_eventos(Diagnostico *d, int linha, TCB *t)
         if (sep != NULL)
             *sep++ = '\0';
         txt = trim(pedaco);
+        if (*txt == '\0')
+            continue;
 
         if (!ler_inteiro(txt, &valor) || valor < 0)
         {
             diag_erro(d, "linha %d: tarefa \"%s\": evento \"%s\" invalido (esperado um inteiro >= 0)",
                       linha, t->id, txt);
-            return 0;
+            break;
         }
         /* Testa antes de somar: estouro de int é comportamento indefinido. */
         if (valor > INT_MAX - t->ingresso)
         {
             diag_erro(d, "linha %d: tarefa \"%s\": evento %d grande demais", linha, t->id, valor);
-            return 0;
+            break;
         }
-        if (t->n_instantes == MAX_EVENTOS)
-        {
-            diag_erro(d, "linha %d: tarefa \"%s\" tem mais de %d eventos", linha, t->id, MAX_EVENTOS);
-            return 0;
-        }
-        /* Só recusa se DIMINUI; a mensagem mostra o número do arquivo. */
         if (t->n_instantes > 0 && t->ingresso + valor < t->instantes[t->n_instantes - 1])
-        {
-            diag_erro(d, "linha %d: tarefa \"%s\": eventos fora de ordem (%d depois de %d)",
-                      linha, t->id, valor, t->instantes[t->n_instantes - 1] - t->ingresso);
-            return 0;
-        }
+            fora_de_ordem = 1;
         t->instantes[t->n_instantes++] = t->ingresso + valor;
+    }
+    if (pedaco != NULL) /* saiu pelo break: houve erro */
+    {
+        free(t->instantes);
+        t->instantes = NULL;
+        t->n_instantes = 0;
+        return 0;
+    }
+    if (fora_de_ordem)
+    {
+        qsort(t->instantes, (size_t)t->n_instantes, sizeof *t->instantes, comparar_int);
+        diag_aviso(d, "linha %d: tarefa \"%s\": eventos fora de ordem; usados em ordem crescente",
+                   linha, t->id);
     }
     return 1;
 }
 
-/* [6.3] Confere o intervalo mínimo entre ocorrências CONSECUTIVAS da
- * esporádica: instantes[k] - instantes[k-1] >= |periodo| para todo k >= 1.
- * O ingresso é a CRIAÇÃO da tarefa, não uma ocorrência: não entra na conta.
+/* [6.3] Intervalo mínimo da esporádica (req. B 1.3): ocorrências
+ * CONSECUTIVAS a pelo menos |periodo| ticks (>=: "mínimo" inclui o valor).
+ * O ingresso é a criação da tarefa, não uma ocorrência: fica fora da conta.
  * Devolve 1 se respeita; 0 se não, com AVISO em d.
  *
- * DECISÃO (professor, 19/11): quem viola é IGNORADA com aviso e o resto do
- * arquivo carrega. TODO [6.3]: escrever aqui a justificativa para o
- * "cliente" (ver docs/anotacoes_professor_projeto_b.md, item 2).
- *
- * TODO [6.3]: o laço. Use >= e não >: "mínimo" inclui o próprio valor.
- * Formato do aviso (o instante do ARQUIVO, sem o ingresso, que é o que o
- * usuário escreveu):
- *   linha 4: tarefa "e1" esporadica ignorada: ocorrencias em 5 e 8 estao a
- *   3 ticks; o intervalo minimo e 5 */
-static int intervalo_minimo_ok(Diagnostico * d, int linha, const TCB *t)
+ * Quem viola é IGNORADA com aviso e o resto do arquivo carrega (sugestão do
+ * professor, 19/11). Por quê: o |periodo| é a promessa de pior caso que
+ * deixa a esporádica entrar no teste de escalonabilidade (U <= C/|P|). Uma
+ * tarefa que quebra a promessa não pode ser analisada, mas as outras
+ * tarefas do arquivo continuam válidas. O aviso mostra os instantes do
+ * arquivo (sem o ingresso), que é o que o usuário escreveu. */
+static int intervalo_minimo_ok(Diagnostico *d, int linha, const TCB *t)
 {
-    (void)d;
-    (void)linha;
-    (void)t;
+    int minimo = -t->periodo;
+
+    for (int k = 1; k < t->n_instantes; k++)
+    {
+        int distancia = t->instantes[k] - t->instantes[k - 1];
+        if (distancia < minimo)
+        {
+            diag_aviso(d,
+                       "linha %d: tarefa \"%s\" esporadica ignorada: ocorrencias em %d e %d "
+                       "estao a %d ticks; o intervalo minimo e %d",
+                       linha, t->id, t->instantes[k - 1] - t->ingresso,
+                       t->instantes[k] - t->ingresso, distancia, minimo);
+            return 0;
+        }
+    }
     return 1;
 }
 
@@ -511,6 +541,7 @@ int config_carregar_texto(const char *conteudo, Estado *e, Diagnostico *d)
                          ">0 periodica, 0 aperiodica, <0 esporadica)",
                       num, campos[4]);
             ok = 0;
+            t.periodo = PADRAO_PERIODO; /* nada abaixo faz conta com INT_MIN */
         }
         t.tipo = t.periodo > 0    ? TIPO_PERIODICA
                  : t.periodo == 0 ? TIPO_APERIODICA
@@ -572,8 +603,8 @@ int config_carregar_texto(const char *conteudo, Estado *e, Diagnostico *d)
 
         t.ingresso = campo_int_min(d, num, "ingresso", campos[2],
                                    0, 0, &ok);
-        /* A 1ª chegada é no ingresso; daí em diante a ativar() do núcleo
-         * agenda a seguinte somando o período. */
+        /* A 1ª chegada é no ingresso (a esporádica troca pelo 1º instante
+         * da lista, mais abaixo); as seguintes, agendar_proxima (kernel.c). */
         t.proxima_ativacao = t.ingresso;
 
         t.duracao = campo_int_min(d, num, "duracao", campos[3],
@@ -604,15 +635,22 @@ int config_carregar_texto(const char *conteudo, Estado *e, Diagnostico *d)
         }
         else
         {
-            /* [6.5] Aperiódica e esporádica: o prazo é lido como está
-             * (inteiro >= 0, vazio = 0).
-             * TODO [6.5]: DECIDIR o que prazo 0 significa e anotar (decisão
-             * 5.2 do kanban). Sugestão:
-             *   - ESPORADICA: prazo 0 = |periodo|, como o Di = Pi das
-             *     periódicas logo acima, com o mesmo tipo de aviso;
-             *   - APERIODICA: prazo 0 = SEM prazo (tarefa soft); quem
-             *     respeita isso é tem_prazo() em kernel.c. */
-            t.prazo = campo_int_min(d, num, "prazo", campos[5], 0, 0, &ok);
+            /* [6.5] Esporádica é hard: vazio vale |periodo| (como o Di = Pi
+             * acima) e o 0 escrito também, com aviso. Aperiódica é soft:
+             * vazio ou 0 = SEM prazo (tem_prazo, kernel.c). */
+            int padrao = (t.tipo == TIPO_ESPORADICA) ? -t.periodo : 0;
+            int ok_prazo = 1;
+
+            t.prazo = campo_int_min(d, num, "prazo", campos[5], padrao, 0, &ok_prazo);
+            if (!ok_prazo)
+                ok = 0;
+            else if (t.prazo == 0 && padrao > 0)
+            {
+                diag_aviso(d,
+                           "linha %d: tarefa \"%s\" com prazo 0; assumido prazo = |periodo| (%d)",
+                           num, campos[0], padrao);
+                t.prazo = padrao;
+            }
         }
 
         /* campo 7 (eventos) leva o resto da linha; aqui so poda ';'/espacos no fim */
@@ -625,30 +663,45 @@ int config_carregar_texto(const char *conteudo, Estado *e, Diagnostico *d)
             {
                 campos[6][--tam] = '\0';
             }
-            /* O TCB guarda até 255 caracteres de eventos; o que passar
-             * disso é cortado, com aviso. */
+            /* O TCB guarda até 255 caracteres do TEXTO; o que passar disso
+             * é cortado, com aviso. Na esporádica isso só afeta a tela:
+             * os instantes são lidos do campo inteiro (ler_lista_eventos). */
             if (tam >= sizeof t.eventos)
             {
-                diag_aviso(d,
-                           "linha %d: lista de eventos longa demais; guardados so os primeiros %d caracteres",
-                           num, (int)sizeof t.eventos - 1);
+                if (t.tipo == TIPO_ESPORADICA)
+                    diag_aviso(d,
+                               "linha %d: lista de eventos longa; todos os instantes foram lidos, "
+                               "mas a tela mostra so os primeiros %d caracteres",
+                               num, (int)sizeof t.eventos - 1);
+                else
+                    diag_aviso(d,
+                               "linha %d: lista de eventos longa demais; guardados so os primeiros %d caracteres",
+                               num, (int)sizeof t.eventos - 1);
             }
 
             snprintf(t.eventos, sizeof t.eventos, "%s", campos[6]);
         }
 
         /* [6.2] e [6.3] ESPORÁDICA: interpretar a lista e conferir o
-         * intervalo mínimo. Formato ruim é ERRO (reprova o arquivo); o
-         * intervalo violado só IGNORA esta tarefa (o continue pula a linha
-         * sem mexer em 'valido'), com o aviso já dado.
-         * TODO [6.2]: lista de eventos numa periódica ou aperiódica: hoje é
-         * guardada e não usada (é assim desde o Projeto A). Avisar? */
+         * intervalo mínimo. Instante inválido é ERRO (reprova o arquivo).
+         * Lista vazia (nenhuma ocorrência) ou intervalo violado só IGNORAM
+         * esta tarefa, com aviso: o continue pula a linha sem mexer em
+         * 'valido'. Nos outros tipos a lista é só guardada, como no A. */
         if (ok && t.tipo == TIPO_ESPORADICA)
         {
-            if (!ler_lista_eventos(d, num, &t))
+            if (!ler_lista_eventos(d, num, &t, campos[6]))
                 ok = 0;
-            else if (!intervalo_minimo_ok(d, num, &t))
+            else if (t.n_instantes == 0 || !intervalo_minimo_ok(d, num, &t))
+            {
+                if (t.n_instantes == 0)
+                    diag_aviso(d, "linha %d: tarefa \"%s\" esporadica ignorada: "
+                                  "lista_eventos sem nenhuma ocorrencia",
+                               num, t.id);
+                free(t.instantes);
                 continue;
+            }
+            else
+                t.proxima_ativacao = t.instantes[0];
         }
 
         /* id duplicado invalida a tarefa (mas nao aborta o parse das demais).
@@ -666,6 +719,7 @@ int config_carregar_texto(const char *conteudo, Estado *e, Diagnostico *d)
          * leitura continua, para mostrar os erros das outras linhas. */
         if (!ok)
         {
+            free(t.instantes); /* NULL se não chegou a alocar */
             valido = 0;
             continue;
         }
@@ -681,6 +735,7 @@ int config_carregar_texto(const char *conteudo, Estado *e, Diagnostico *d)
             if (maior == NULL)
             {
                 diag_erro(d, "falta de memoria na linha %d", num);
+                free(t.instantes);
                 valido = 0;
                 break;
             }

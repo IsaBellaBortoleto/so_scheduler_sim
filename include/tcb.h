@@ -16,12 +16,6 @@
 /* Tamanho do texto da lista de eventos (usada só no Projeto B). */
 #define MAX_EVENTOS_TXT 256
 
-/* Máximo de ocorrências de uma esporádica (req. B 1.3). Cada int a mais no
- * TCB vai para TODAS as fotos do histórico (uma por tick, para cada tarefa):
- * com 200 tarefas e ~2700 ticks, 32 instantes já somam ~70 MB. Passou de 32,
- * o parser recusa a tarefa com o motivo. */
-#define MAX_EVENTOS 32
-
 /* O TIPO da tarefa sai do sinal do período (req. B 1.2 e 1.3):
  *   periodo > 0  PERIODICA   chega a cada Pi, faz MAX_ATIVACOES execuções
  *   periodo = 0  APERIODICA  chega UMA vez, no ingresso
@@ -82,10 +76,11 @@ typedef struct {
     char eventos[MAX_EVENTOS_TXT];   /* lista de eventos (Projeto B)        */
     TipoTarefa tipo;                 /* pelo sinal do período (ver acima)   */
     /* Chegadas da ESPORÁDICA em tick ABSOLUTO (ingresso + instante do
-     * arquivo), em ordem crescente. Vetor DENTRO da struct, e não ponteiro:
-     * o histórico copia o TCB com memcpy (tcb.c), e um ponteiro seria
-     * compartilhado por todas as fotos. */
-    int  instantes[MAX_EVENTOS];
+     * arquivo), em ordem crescente; NULL nos outros tipos. Vetor alocado,
+     * sem limite de tamanho (req. A 3.3.5: "inúmeros eventos"). Cada foto
+     * do histórico tem a SUA cópia: estado_clonar duplica e estado_liberar
+     * libera (tcb.c), então nunca há duas fotos com o mesmo ponteiro. */
+    int *instantes;
     int  n_instantes;
 
     /* ---- muda a cada tick (núcleo, kernel.c) ---- */

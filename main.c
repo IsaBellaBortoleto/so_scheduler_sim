@@ -320,8 +320,7 @@ static void teste_config(void)
 
     /* Periodo que nao e numero e ERRO (3.3), e a mensagem traz o numero da
      * linha contando as linhas em branco, para bater com o editor do
-     * usuario. (Periodo negativo deixou de ser erro: e esporadica, B 1.3.)
-     * TODO [6.3]: "0,5,8" com |P| = 5 e ignorada com aviso. */
+     * usuario. (Periodo negativo deixou de ser erro: e esporadica, B 1.3.) */
     memset(&d, 0, sizeof d);
     assert(config_carregar_texto("RM;2;1\n\n1;;0;1;x", &e, &d) == 0);
     assert(d.n_erros == 1 && strstr(d.erros[0], "linha 3") != NULL);
@@ -337,12 +336,11 @@ static void teste_config(void)
     assert(strcmp(e.tarefas[1].eventos, "0, 5 ,12") == 0); /* o texto fica inteiro */
     estado_liberar(&e);
 
-    /* [6.2] Formato ruim e ERRO, e a mensagem cita o pedaco ruim (e nao o
-     * id no lugar dele): vazio, nao numero, negativo, ",,", virgula no
-     * fim, fora de ordem e mais de MAX_EVENTOS. Iguais passam (sao do 6.3). */
+    /* [6.2] ERRO so quando o pedaco nao e um instante ("x", negativo), e a
+     * mensagem cita o pedaco ruim (e nao o id no lugar dele). */
     {
-        static const char *ruins[] = {"", "0,x", "-3", "0,,5", "0,5,", "5,0"};
-        char linha[512];
+        static const char *ruins[] = {"0,x", "-3", "0,5a"};
+        static char linha[2048];
         int k, pos;
 
         for (k = 0; k < (int)(sizeof ruins / sizeof *ruins); k++)
@@ -355,16 +353,62 @@ static void teste_config(void)
         assert(config_carregar_texto("RM;0;1\n1;;0;1;4\ne1;;0;1;-5;;0,x", &e, &d) == 0);
         assert(strstr(d.erros[0], "evento \"x\"") != NULL);
 
+        /* Arquivo no formato do enunciado nunca e recusado (req. 3.3.7):
+         * fora de ordem e ORDENADA com aviso; ",," e virgula no fim sao
+         * ignorados (como espacos, 3.3.6); lista vazia so IGNORA a tarefa. */
+        memset(&d, 0, sizeof d);
+        assert(config_carregar_texto("RM;0;1\n1;;0;1;4\ne1;;0;1;-5;;10,,0,5,\ne2;;0;1;-5;;",
+                                     &e, &d) == 1);
+        assert(e.ntarefas == 2 && e.tarefas[1].n_instantes == 3);
+        assert(e.tarefas[1].instantes[0] == 0 && e.tarefas[1].instantes[2] == 10);
+        assert(strstr(d.avisos[0], "fora de ordem; usados em ordem crescente"));
+        assert(strstr(d.avisos[1], "\"e2\" esporadica ignorada: lista_eventos sem nenhuma"));
+        estado_liberar(&e);
+
+        /* Sem limite de ocorrencias (req. 3.3.5): 300 instantes, um texto bem
+         * maior que os 255 caracteres que a tela guarda. Todos sao lidos, e o
+         * aviso diz que so a TELA foi cortada. */
         pos = snprintf(linha, sizeof linha, "RM;0;1\n1;;0;1;4\ne1;;0;1;-1;;0");
-        for (k = 1; k <= MAX_EVENTOS; k++)  /* MAX_EVENTOS + 1 instantes */
+        for (k = 1; k < 300; k++)
             pos += snprintf(linha + pos, sizeof linha - (size_t)pos, ",%d", k);
         memset(&d, 0, sizeof d);
-        assert(config_carregar_texto(linha, &e, &d) == 0 && strstr(d.erros[0], "mais de"));
+        assert(config_carregar_texto(linha, &e, &d) == 1);
+        assert(e.tarefas[1].n_instantes == 300 && e.tarefas[1].instantes[299] == 299);
+        assert(strstr(d.avisos[0], "todos os instantes foram lidos"));
 
-        memset(&d, 0, sizeof d);
-        assert(config_carregar_texto("RM;0;1\n1;;0;1;4\ne1;;0;1;-5;;0,5,5", &e, &d) == 1);
-        estado_liberar(&e);
+        /* Cada foto tem a SUA copia dos instantes (estado_clonar): liberar
+         * o original nao estraga o clone. */
+        {
+            Estado c = estado_clonar(&e);
+            assert(c.ntarefas == 2 && c.tarefas[1].instantes != e.tarefas[1].instantes);
+            estado_liberar(&e);
+            assert(c.tarefas[1].instantes[299] == 299);
+            estado_liberar(&c);
+        }
     }
+
+    /* [6.3] Intervalo minimo violado (|P| = 5, ocorrencias a 3 ticks): so a
+     * esporadica e IGNORADA, com aviso; o arquivo carrega. Iguais ("5,5",
+     * distancia 0) tambem violam. Exatamente |P| (0,5,10) passa: e ">=". */
+    memset(&d, 0, sizeof d);
+    assert(config_carregar_texto("RM;0;1\n1;;0;1;4\ne1;;10;1;-5;;0,5,8\ne2;;0;1;-5;;5,5", &e, &d) == 1);
+    assert(e.ntarefas == 1 && d.n_erros == 0);
+    assert(strstr(d.avisos[0], "\"e1\" esporadica ignorada") &&
+           strstr(d.avisos[0], "em 5 e 8 estao a 3 ticks; o intervalo minimo e 5"));
+    assert(strstr(d.avisos[1], "\"e2\" esporadica ignorada"));
+    estado_liberar(&e);
+
+    /* [6.5] Prazo padrao: esporadica vazio = |P| e 0 escrito = |P| com aviso;
+     * aperiodica vazio = 0 (sem prazo). A 1a chegada da esporadica e o 1o
+     * instante da lista, e nao o ingresso. */
+    memset(&d, 0, sizeof d);
+    assert(config_carregar_texto("RM;0;1\n1;;0;1;4\ne1;;10;1;-5;;3,8\ne2;;0;1;-5;0;0,10\na1;;0;1;0",
+                                 &e, &d) == 1);
+    assert(e.ntarefas == 4 && e.tarefas[1].instantes[0] == 13 && e.tarefas[1].instantes[1] == 18);
+    assert(e.tarefas[1].proxima_ativacao == 13);
+    assert(e.tarefas[1].prazo == 5 && e.tarefas[2].prazo == 5 && e.tarefas[3].prazo == 0);
+    assert(strstr(d.avisos[0], "assumido prazo = |periodo| (5)"));
+    estado_liberar(&e);
 
     /* Tres decisoes de projeto, na mesma leitura:
      *  - quantum 0 e aceito (significa "sem limite de quantum");
