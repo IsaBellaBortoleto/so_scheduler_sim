@@ -107,6 +107,16 @@ void estado_liberar(Estado *e)
 
 /* Nome legivel do estado: o texto da coluna "estado" da pagina (requisito
  * 1.5.1) e o que se digita na edicao manual (requisito 3.4). */
+int tcb_chegada_pendente(const TCB *t, int j)
+{
+    /* Esporádica: as pendentes são as ÚLTIMAS que chegaram, de
+     * instantes[prox_evento - pendentes] até instantes[prox_evento - 1]. */
+    if (t->tipo == TIPO_ESPORADICA)
+        return t->instantes[t->prox_evento - t->pendentes + j - 1];
+    /* Periódica: a j-ésima chegou j períodos depois da atual. */
+    return t->ativacao + j * t->periodo;
+}
+
 const char *tipo_nome(TipoTarefa t)
 {
     switch (t) {

@@ -66,15 +66,12 @@ static int marca_em(const Simulacao *s, int t, int i)
         (agora->deadline_abs == t || antes == NULL || !antes->perdeu_prazo))
         marcas |= 1 << MARCA_PRAZO;
 
-    /* PRAZO (b): execuções ainda na fila. A j-ésima chegou j períodos
-     * depois da atual, e vence 'prazo' ticks depois disso. Sem esta regra,
-     * uma tarefa atrasada mostraria um X só, por mais execuções que
-     * perdesse.
-     * TODO [6.5]: conta só de periódica. Na esporádica a j-ésima pendente
-     * chegou em instantes[prox_evento - pendentes - 1 + j] (ver
-     * chegada_da_pendente em kernel.c), e a aperiódica nunca tem pendente. */
+    /* PRAZO (b): execuções ainda na fila. Cada uma vence 'prazo' ticks
+     * depois da PRÓPRIA chegada (tcb_chegada_pendente: periódica e
+     * esporádica). Sem esta regra, uma tarefa atrasada mostraria um X só,
+     * por mais execuções que perdesse. */
     for (int j = 1; j <= agora->pendentes; j++)
-        if (agora->ativacao + j * agora->periodo + agora->prazo == t)
+        if (tcb_chegada_pendente(agora, j) + agora->prazo == t)
             marcas |= 1 << MARCA_PRAZO;
 
     if (antes != NULL && agora->ativacoes > antes->ativacoes)

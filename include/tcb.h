@@ -32,6 +32,11 @@ typedef enum {
 /* O nome do tipo como texto ("PERIODICA"...), para o JSON e a página. */
 const char *tipo_nome(TipoTarefa t);
 
+/* proxima_ativacao de quem não chega mais (aperiódica que já chegou,
+ * esporádica sem ocorrência pela frente). O tick nunca é negativo, então
+ * nunca bate com o relógio. */
+#define SEM_CHEGADA (-1)
+
 /* Tamanho do id de uma tarefa: 15 letras + o '\0' do fim. O id é TEXTO
  * (ex. "t06"), e não número: é o que o professor pediu na defesa do A, e o
  * Projeto B identifica os servidores pelo id (BSxx, PSxx, DSxx, SSxx). */
@@ -86,8 +91,9 @@ typedef struct {
     /* ---- muda a cada tick (núcleo, kernel.c) ---- */
     EstadoTarefa estado;
     int  exec_restante;     /* quanto falta da execução atual (Ci rest.)     */
-    int  proxima_ativacao;  /* tick da PRÓXIMA chegada. Fica guardado (em
-                             * vez de calculado por tick % periodo) para o
+    int  proxima_ativacao;  /* tick da PRÓXIMA chegada, nos três tipos, ou
+                             * SEM_CHEGADA. Fica guardado (em vez de
+                             * calculado por tick % periodo) para o
                              * período poder mudar no meio da simulação
                              * sem bagunçar as chegadas (ver ativar())    */
     int  quantum_restante;  /* quanto falta do quantum na CPU atual          */
@@ -103,6 +109,11 @@ typedef struct {
                        * == n_instantes quando todas já chegaram */
 } TCB;
 
+/* Tick em que chegou a j-ésima execução PENDENTE (1 = a mais antiga, que é a
+ * próxima a executar; j <= pendentes). O prazo dela conta de lá. Usada pelo
+ * núcleo (ao começar a pendente) e pelo Gantt (X de prazo das pendentes).
+ * A aperiódica nunca tem pendente: chega uma vez só. */
+int tcb_chegada_pendente(const TCB *t, int j);
 
 /* Um processador. */
 typedef struct {

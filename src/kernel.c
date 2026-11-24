@@ -57,14 +57,23 @@ static int sim_indice_por_id(const Estado *e, const char *id)
     return -1;
 }
 
+static int existe_servidor(const Estado *e);
+
 /* Devolve 1 se TODAS as tarefas estão EST_CONCLUIDA (com ntarefas==0 também:
  * nada pra simular). Usada por sim_iniciar/sim_avancar pra decidir
- * s->terminada. */
+ * s->terminada. Sem servidor, aperiódica e esporádica nunca executam: não
+ * entram na conta, senão a simulação só pararia no limite de ticks (o
+ * parser já avisou que elas não executam). */
 static int todas_concluidas(const Estado *e)
 {
+    int esperar_aperiodicas = existe_servidor(e);
+
     for (int i = 0; i < e->ntarefas; i++)
     {
-        if (e->tarefas[i].estado != EST_CONCLUIDA)
+        const TCB *t = &e->tarefas[i];
+        if (t->tipo != TIPO_PERIODICA && !esperar_aperiodicas)
+            continue;
+        if (t->estado != EST_CONCLUIDA)
             return 0;
     }
     return 1;
@@ -208,63 +217,49 @@ static void ativar_tarefa(TCB *t, int tick)
 
 /* ------------------- Projeto B: aperiódicas e esporádicas ----------------- */
 
-/* [6.4] Responde só "esta aperiódica/esporádica chega NESTE tick?". Não
- * mexe no TCB: quem registra a chegada é chegada_aperiodica().
- * TODO [6.4]:
- *   - APERIODICA: tick == t->ingresso (uma única chegada);
- *   - ESPORADICA: ainda falta chegar alguma (prox_evento < n_instantes) e
- *     tick == t->instantes[t->prox_evento]. instantes[] já está em tick
- *     ABSOLUTO (o parser somou o ingresso). */
-static int chegou_aperiodica(const TCB *t, int tick)
+/* [6.4] Agenda a chegada SEGUINTE logo depois de uma chegada (automática em
+ * ativar() ou manual na edição). Os três tipos usam o mesmo
+ * proxima_ativacao; só muda a regra:
+ *   PERIODICA   um período depois
+ *   APERIODICA  nunca mais (chega uma vez só)
+ *   ESPORADICA  o próximo instante da lista, se ainda houver */
+static void agendar_proxima(TCB *t)
 {
-    (void)t; (void)tick;
-    return 0;
+    switch (t->tipo)
+    {
+    case TIPO_PERIODICA:
+        t->proxima_ativacao += t->periodo;
+        break;
+    case TIPO_APERIODICA:
+        t->proxima_ativacao = SEM_CHEGADA;
+        break;
+    case TIPO_ESPORADICA:
+        /* O teto protege a chegada MANUAL de quem já não tem ocorrência
+         * pela frente: prox_evento nunca passa de n_instantes. */
+        if (t->prox_evento < t->n_instantes)
+            t->prox_evento++;
+        t->proxima_ativacao = t->prox_evento < t->n_instantes
+                                  ? t->instantes[t->prox_evento]
+                                  : SEM_CHEGADA;
+        break;
+    }
 }
 
-/* [6.4] Registra a chegada de uma aperiódica/esporádica. Ela fica PRONTA,
- * mas NÃO disputa CPU: escalonar() só põe na fila de prontos quem passa em
- * vai_para_fila_de_prontos(). PRONTA aqui = "na fila de aperiódicas" (ver
- * sim_fila_aperiodicas em kernel.h).
- * TODO [6.4], na mesma lógica das periódicas em ativar():
- *   - ESPORADICA: prox_evento++ (esta ocorrência já chegou);
- *   - INATIVA: ativar_tarefa(t, tick) e s->precisa_escalonar = 1. É
- *     EVENTO: na seção 7 um servidor (DS, SS) reage à chegada;
- *   - ainda na fila ou executando a ocorrência anterior: pendentes++;
- *   - CONCLUIDA: nada (só por edição manual chega-se aqui assim). */
-static void chegada_aperiodica(Simulacao *s, TCB *t)
-{
-    (void)s; (void)t;
-}
-
-/* [6.5] A execução atual tem prazo a verificar?
- * TODO [6.5]: depende da decisão do parser (config.c, bloco do prazo). Com
- * a sugestão de lá: APERIODICA com prazo 0 = sem prazo (soft) -> 0. Hoje
- * devolve 1 para todas, como no Projeto A. */
+/* [6.5] A execução atual tem prazo? Só a aperiódica pode não ter: prazo 0
+ * nela = soft (o parser já trocou o 0 da esporádica por |periodo|). */
 static int tem_prazo(const TCB *t)
 {
-    (void)t;
-    return 1;
+    return t->tipo != TIPO_APERIODICA || t->prazo > 0;
 }
 
-/* [6.5] Depois de terminar uma execução (ativacoes já somou esta): era a
- * última? Então a tarefa vira CONCLUIDA.
- * TODO [6.5]: MAX_ATIVACOES (req. 4.4) só vale para as periódicas.
- *   - APERIODICA: depois de 1 execução;
- *   - ESPORADICA: quando não falta chegar nenhuma ocorrência
- *     (prox_evento == n_instantes) e nenhuma está esperando (pendentes == 0). */
+/* [6.5] Depois de terminar uma execução (ativacoes já contou esta): era a
+ * última? As 10 execuções (req. 4.4) são só da periódica; aperiódica e
+ * esporádica acabam quando não chega mais nada e nada está esperando. */
 static int foi_a_ultima_execucao(const TCB *t)
 {
-    return t->ativacoes >= MAX_ATIVACOES;
-}
-
-/* [6.5] Tick em que chegou a próxima execução PENDENTE (o prazo dela conta
- * de lá). Chamar ANTES de pendentes--.
- * TODO [6.5] ESPORADICA: as pendentes são as últimas que chegaram, de
- * instantes[prox_evento - pendentes] até instantes[prox_evento - 1]; a
- * próxima a executar é a mais antiga delas. */
-static int chegada_da_pendente(const TCB *t)
-{
-    return t->ativacao + t->periodo;
+    if (t->tipo == TIPO_PERIODICA)
+        return t->ativacoes >= MAX_ATIVACOES;
+    return t->proxima_ativacao == SEM_CHEGADA && t->pendentes == 0;
 }
 
 /* [6.4] Req. B 1.1: só periódicas disputam a CPU pela fila de prontos.
@@ -276,23 +271,51 @@ static int vai_para_fila_de_prontos(const TCB *t)
     return t->tipo == TIPO_PERIODICA;
 }
 
-/* [6.4] Fila de aperiódicas IMPLÍCITA: não é um vetor guardado, é montada
- * na hora a partir do TCB (aperiódica/esporádica em PRONTA). Assim entra no
- * histórico de graça e não há nada para manter sincronizado. Quando um
- * servidor pega uma tarefa ela vira EXECUTANDO e sai da fila sozinha:
- * nenhum outro servidor a vê (req. B 2.2).
- * TODO [6.4]: preencher fila[] com os ÍNDICES dessas tarefas, em ordem de
- * chegada (campo 'ativacao'; empate: id_comparar, para ser determinístico),
- * e devolver quantas são. */
-int sim_fila_aperiodicas(const Estado *e, int *fila)
+/* Há algum servidor para executar aperiódicas? Sem servidor elas nunca
+ * concluem, e por isso não seguram o fim da simulação (todas_concluidas).
+ * TODO [7]: procurar TIPO_SERVIDOR. */
+static int existe_servidor(const Estado *e)
 {
-    (void)e; (void)fila;
+    (void)e;
     return 0;
 }
 
-/* ATIVAÇÃO — uma tarefa periódica chega quando o relógio alcança o tick
- * guardado em proxima_ativacao; nesse momento a chegada seguinte já fica
- * agendada (proxima_ativacao += periodo).
+/* [6.4] Fila de aperiódicas IMPLÍCITA: não é um vetor guardado, é montada
+ * na hora (aperiódica/esporádica em PRONTA, por ordem de chegada). Entra no
+ * histórico de graça e não há nada para manter sincronizado. Quem o
+ * servidor pegar vira EXECUTANDO e sai da fila sozinho: nenhum outro
+ * servidor o vê (req. B 2.2). Empate na chegada: id_comparar, para o
+ * resultado não depender da ordem do arquivo. */
+int sim_fila_aperiodicas(const Estado *e, int *fila)
+{
+    int n = 0;
+
+    for (int i = 0; i < e->ntarefas; i++)
+    {
+        const TCB *t = &e->tarefas[i];
+        if (t->tipo == TIPO_PERIODICA || t->estado != EST_PRONTA)
+            continue;
+        /* Inserção ordenada: abre espaço empurrando os que chegaram depois. */
+        int k = n++;
+        while (k > 0)
+        {
+            const TCB *antes = &e->tarefas[fila[k - 1]];
+            if (antes->ativacao < t->ativacao ||
+                (antes->ativacao == t->ativacao && id_comparar(antes->id, t->id) <= 0))
+                break;
+            fila[k] = fila[k - 1];
+            k--;
+        }
+        fila[k] = i;
+    }
+    return n;
+}
+
+/* ATIVAÇÃO — uma tarefa chega quando o relógio alcança o tick guardado em
+ * proxima_ativacao; nesse momento a chegada seguinte já fica agendada
+ * (agendar_proxima). Vale para os três tipos: a periódica vai para a fila
+ * de prontos e a aperiódica/esporádica para a fila de aperiódicas (as duas
+ * são "PRONTA"; quem separa é vai_para_fila_de_prontos).
  *
  * Com o período fixo isso dá os mesmos ticks de antes (ingresso + k*periodo).
  * A diferença aparece quando o usuário EDITA o período: a conta antiga,
@@ -305,21 +328,16 @@ static void ativar(Simulacao *s)
     for (int i = 0; i < executando->ntarefas; i++)
     {
         TCB *tarefa = &executando->tarefas[i];
-        if (tarefa->tipo != TIPO_PERIODICA)
-        {
-            if (chegou_aperiodica(tarefa, executando->tick))
-                chegada_aperiodica(s, tarefa); /* [6.4] */
-            continue;
-        }
         int chegou = executando->tick == tarefa->proxima_ativacao;
         if (!chegou)
             continue;
-        tarefa->proxima_ativacao += tarefa->periodo; /* agenda a seguinte */
+        agendar_proxima(tarefa); /* agenda a seguinte */
 
         if (tarefa->estado == EST_INATIVA)
         {
             ativar_tarefa(tarefa, executando->tick); /* livre: começa já */
-            s->precisa_escalonar = 1; /* EVENTO: uma PRONTA nova na fila */
+            s->precisa_escalonar = 1; /* EVENTO: uma PRONTA nova na fila (na
+                                       * seção 7, um servidor reage a ela) */
         }
         else if (tarefa->estado != EST_CONCLUIDA)
             tarefa->pendentes++; /* ocupada: espera a vez. NÃO é evento: a
@@ -456,7 +474,7 @@ static void executar(Simulacao *s)
                      /* Já havia outra execução esperando: o prazo dela conta
                       * da chegada DELA (periódica: um período depois da que
                       * acabou de terminar). */
-                     int chegada = chegada_da_pendente(tarefa); /* [6.5] */
+                     int chegada = tcb_chegada_pendente(tarefa, 1); /* [6.5] */
                      tarefa->pendentes--;
                      ativar_tarefa(tarefa, chegada);
                  }

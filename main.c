@@ -1117,6 +1117,83 @@ static void teste_estado_json(void)
     printf("autoteste: estado em JSON ... ok\n");
 }
 
+/* Aperiodicas e esporadicas no nucleo (secao 6): chegadas, fila separada,
+ * prazo, termino, retroceder e chegada manual. */
+static void teste_aperiodicas(void)
+{
+    Simulacao s;
+    TCB *t;
+    int fila[8], n;
+
+    /* RM, 1 CPU. 1: periodica (C 1, P 4). a1: aperiodica no tick 3, sem
+     * prazo. e1: esporadica criada em 2, |P| 5, instantes 0,5,12 -> chega
+     * em 2, 7 e 14, prazo 5. */
+    iniciar_de_texto(&s, "RM;0;1\n1;;0;1;4\na1;;3;2;0\ne1;;2;1;-5;;0,5,12");
+    t = s.atual.tarefas;
+    assert(t[2].proxima_ativacao == 2 && t[1].proxima_ativacao == 3);
+
+    /* Tick 2: e1 chega e fica PRONTA, mas FORA da CPU (req. B 1.1): a CPU
+     * esta ociosa e mesmo assim ela nao executa. Vai para a fila. */
+    sim_avancar(&s); sim_avancar(&s);
+    t = s.atual.tarefas;
+    assert(t[2].estado == EST_PRONTA && t[2].cpu == -1 && t[2].ativacao == 2);
+    assert(t[2].prox_evento == 1 && t[2].proxima_ativacao == 7);
+    assert(s.atual.cpus[0].tarefa != 2);
+
+    /* Tick 3: a1 chega; a fila fica em ordem de chegada. */
+    sim_avancar(&s);
+    t = s.atual.tarefas;
+    n = sim_fila_aperiodicas(&s.atual, fila);
+    assert(n == 2 && fila[0] == 2 && fila[1] == 1);
+    assert(t[1].proxima_ativacao == SEM_CHEGADA);
+
+    /* Tick 7: e1 perde o prazo (2 + 5) esperando, e a 2a ocorrencia chega
+     * com a 1a ainda na fila: vira pendente, com a chegada propria. */
+    while (s.atual.tick < 7)
+        sim_avancar(&s);
+    t = s.atual.tarefas;
+    assert(t[2].perdeu_prazo == 1 && t[2].pendentes == 1);
+    assert(tcb_chegada_pendente(&t[2], 1) == 7 && t[2].proxima_ativacao == 14);
+
+    /* Retroceder desfaz a chegada: no tick 6 nao havia pendente. */
+    assert(sim_retroceder(&s));
+    assert(s.atual.tarefas[2].pendentes == 0 && s.atual.tarefas[2].prox_evento == 1);
+    sim_avancar(&s);
+
+    /* A aperiodica sem prazo nunca e marcada. Sem servidor, aperiodica e
+     * esporadica nao seguram o fim: termina com a periodica (10 execucoes,
+     * a ultima chega no tick 36). */
+    sim_executar_tudo(&s);
+    t = s.atual.tarefas;
+    assert(s.terminada && s.atual.tick == 37 && t[0].estado == EST_CONCLUIDA);
+    assert(t[1].perdeu_prazo == 0 && t[1].estado == EST_PRONTA);
+    sim_liberar(&s);
+
+    /* TERMINO. Sem servidor (secao 7) nada executa uma aperiodica; aqui o
+     * teste faz o papel dele e poe a tarefa na CPU 1 a mao. Aperiodica:
+     * CONCLUIDA depois de 1 execucao. Esporadica: so depois da ULTIMA
+     * ocorrencia da lista. */
+    iniciar_de_texto(&s, "RM;0;2\n1;;0;1;4\na1;;0;1;0\ne1;;0;1;-3;;0,3");
+    t = s.atual.tarefas;
+    t[1].estado = EST_EXECUTANDO; t[1].cpu = 1; s.atual.cpus[1].tarefa = 1;
+    sim_avancar(&s);
+    t = s.atual.tarefas;
+    assert(t[1].estado == EST_CONCLUIDA && t[1].ativacoes == 1);
+    t[2].estado = EST_EXECUTANDO; t[2].cpu = 1; s.atual.cpus[1].tarefa = 2;
+    sim_avancar(&s);
+    t = s.atual.tarefas;
+    assert(t[2].estado == EST_INATIVA && t[2].ativacoes == 1); /* falta a de 3 */
+    sim_avancar(&s);
+    t = s.atual.tarefas;
+    assert(t[2].estado == EST_PRONTA && t[2].proxima_ativacao == SEM_CHEGADA);
+    t[2].estado = EST_EXECUTANDO; t[2].cpu = 1; s.atual.cpus[1].tarefa = 2;
+    sim_avancar(&s);
+    assert(s.atual.tarefas[2].estado == EST_CONCLUIDA);
+    sim_liberar(&s);
+
+    printf("autoteste: aperiodicas e esporadicas ... ok\n");
+}
+
 static void autoteste(void)
 {
     teste_escalonador();
@@ -1129,6 +1206,7 @@ static void autoteste(void)
     teste_prazos();
     teste_editar();
     teste_gantt();
+    teste_aperiodicas();
 
     /* Cada bateria imprime "... ok" quando passa; um assert que falha para
      * o programa na hora, com o arquivo e a linha.
