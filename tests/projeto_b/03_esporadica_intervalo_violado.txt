@@ -1,0 +1,11 @@
+# TESTE: esporadica que viola o intervalo minimo (req. B 1.3, decisao de
+# 19/11: a tarefa e IGNORADA com aviso e o resto do arquivo carrega).
+# ESPERADO: carrega so com a periodica 1 e a esporadica e2; aviso
+#   linha 10: tarefa "e1" esporadica ignorada: ocorrencias em 5 e 8 estao
+#   a 3 ticks; o intervalo minimo e 5
+# mais o aviso de nenhum servidor. e2 esta exatamente no minimo (0,5,10):
+# carrega, e perde o prazo (5) esperando na fila: X no tick 5.
+RM;0;1
+1;E63946;0;1;4;4
+e1;2A9D8F;0;1;-5;;0,5,8
+e2;F4A261;0;1;-5;;0,5,10

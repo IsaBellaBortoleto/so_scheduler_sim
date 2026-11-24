@@ -1,0 +1,35 @@
+ARQUIVOS DE TESTE DO PROJETO B
+==============================
+
+Secao 6 do kanban: tarefas aperiodicas (periodo 0) e esporadicas (periodo
+negativo). Ainda NAO ha servidor (secao 7): elas chegam, esperam na fila
+de aperiodicas e nao executam (req. B 1.1). Por isso a simulacao termina
+quando as periodicas terminam.
+
+Para usar: abrir o simulador, "Escolher ficheiro", "carregar".
+"Observado" = resultado de "executar tudo" em 23/11/2026.
+
+01_aperiodica.txt           observado: tick 37; 1 aviso (nenhum servidor);
+                            a1 sem prazo nunca recebe X; a2 recebe X no
+                            tick 11
+
+02_esporadica.txt           observado: tick 37; 1 aviso; e1 chega em 10,
+                            15 e 22 (ingresso 10 + 0,5,12); X nos ticks
+                            15, 20 e 27
+
+03_esporadica_intervalo_violado.txt
+                            observado: tick 37; 2 avisos (e1 ignorada,
+                            linha 10; nenhum servidor); e2 carrega
+
+04_lista_tolerada.txt       observado: tick 37; 3 avisos (e1 fora de ordem,
+                            ordenada; e3 sem ocorrencia, ignorada; nenhum
+                            servidor); e2 com virgulas sobrando carrega
+
+erro_01_lista_eventos.txt   observado: recusado com 2 erros (linhas 8 e 9:
+                            "x" e "-3" nao sao instantes)
+
+Regra das listas (o enunciado so define "instante01,instante02,..."):
+um arquivo nesse formato nunca e recusado (req. 3.3.7). Fora de ordem e
+ordenada com aviso; virgula sobrando e ignorada; lista vazia ou intervalo
+minimo violado ignoram so a tarefa. Erro so quando o pedaco nao e instante.
+Nao ha limite de ocorrencias (req. 3.3.5).

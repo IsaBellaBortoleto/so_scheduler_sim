@@ -1,0 +1,12 @@
+# TESTE: listas no formato "instante01,instante02,..." do enunciado que
+# nao sao o caso tipico. Nenhuma pode recusar o arquivo (req. 3.3.7).
+# ESPERADO: carrega; avisos:
+#   e1 fora de ordem (10,0,5): usada em ordem crescente, chega em 0, 5, 10
+#   e3 sem nenhuma ocorrencia: ignorada
+#   nenhum servidor
+# e2 tem virgulas sobrando (",,", "," no fim): ignoradas, chega em 0 e 6.
+RM;0;1
+1;E63946;0;1;4;4
+e1;2A9D8F;0;1;-5;;10,0,5
+e2;F4A261;0;1;-5;;0,,6,
+e3;9B5DE5;0;1;-5;;

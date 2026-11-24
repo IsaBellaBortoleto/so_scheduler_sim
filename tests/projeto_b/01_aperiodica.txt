@@ -1,0 +1,10 @@
+# TESTE: tarefa aperiodica (periodo 0, req. B 1.2), sem servidor.
+# ESPERADO: carrega com 1 aviso (nenhum servidor). A1 chega UMA vez, no
+# tick 3, vai para a fila de aperiodicas e nao executa (req. B 1.1);
+# a coluna "prox." mostra "--" depois do tick 3. A1 nao tem prazo (0 =
+# soft): nunca recebe X. A2 tem prazo 6: recebe X no tick 11 (5 + 6).
+# A simulacao termina com as periodicas, no tick 37.
+RM;0;1
+1;E63946;0;1;4;4
+a1;F4A261;3;2;0;0
+a2;9B5DE5;5;1;0;6

@@ -1,0 +1,9 @@
+# TESTE: lista de eventos com um pedaco que NAO e um instante (erro de
+# formato: reprova o arquivo, com a linha e o pedaco).
+# ESPERADO: recusado, com 2 erros:
+#   linha 8: tarefa "e1": evento "x" invalido
+#   linha 9: tarefa "e2": evento "-3" invalido
+RM;0;1
+1;E63946;0;1;4;4
+e1;;0;1;-5;;0,x
+e2;;0;1;-5;;-3

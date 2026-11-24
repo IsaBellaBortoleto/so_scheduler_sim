@@ -1,0 +1,12 @@
+# TESTE: tarefa esporadica (periodo negativo, req. B 1.3), sem servidor.
+# |periodo| = 5 e o intervalo minimo; os instantes sao relativos ao
+# ingresso: criada no tick 10, "0,5,12" chega nos ticks 10, 15 e 22.
+# ESPERADO: carrega com 1 aviso (nenhum servidor). E1 fica na fila de
+# aperiodicas; prazo em branco = |periodo| = 5. As ocorrencias de 15 e 22
+# chegam com a 1a ainda esperando e viram pendentes. Cada uma perde o
+# prazo contado da PROPRIA chegada: X nos ticks 15, 20 e 27.
+# Retroceder do tick 15 para o 14 desfaz a 2a chegada.
+# A simulacao termina com as periodicas, no tick 37.
+RM;0;1
+1;E63946;0;1;4;4
+e1;2A9D8F;10;1;-5;;0,5,12
